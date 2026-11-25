@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SW PL forecast – next 7 days</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="common.js"></script>
+<style>
+  .grid td.day { text-align: center; min-width: 86px; }
+  .grid tr.click { cursor: pointer; } .grid tr.click:hover { background: var(--surface-0); }
+  .grid tr.sel { outline: 2px solid var(--series-1); outline-offset: -2px; }
+  .up { display: block; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .chartbox { position: relative; height: 300px; }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>Southwest PL – 7-day outlook</h1>
+  <p class="sub">The chance the Southwest PL is 1, 2, 3, 4 or 5 on each of the next 7 days, learned from the archive.
+     It uses <b>only observed FEMS values, fire starts and the PL history</b>, with no weather forecasts.
+     The Southwest row uses every PSA together. Each PSA row uses <em>only that PSA's own data</em>, so you can see which parts of the Southwest are pushing toward a higher PL.
+     This is not the 7-Day Significant Fire Potential product.</p>
+  <p class="note" id="meta">Loading…</p>
+</header>
+<main>
+  <section class="card">
+    <h2>Most likely PL, by day</h2>
+    <p class="how">Each cell is the most likely PL that day. The number underneath is the chance the PL will be <b>higher than today's</b>; the deeper the shading, the higher that chance.
+      Click a row to see its full odds and track record below.</p>
+    <div style="overflow:auto"><table class="grid" id="grid"></table></div>
+  </section>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="lower">
+    <section class="card">
+      <h2 id="oddsTitle">Odds for each PL</h2>
+      <p class="how">Each bar adds up to 100%. Darker blue is a higher PL.</p>
+      <div class="chartbox"><canvas id="odds"></canvas></div>
+      <div id="oddsTable"></div>
+    </section>
+    <section class="card">
+      <h2>How well has this worked?</h2>
+      <p class="how">Each past year was predicted by a model trained on the <em>other</em> years, then compared with the simplest forecast: "PL stays where it is."
+        Because the PL rarely changes, "stays the same" is right most days. The columns to watch are the PL changes the model caught,
+        and how often it was right when it called a change. Refreshed once a day.</p>
+      <div id="bt"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>What goes in</h2>
+    <ul class="how" style="margin:0">
+      <li><b>Southwest:</b> today's PL; the average PSA ERC(Y) and BI percentile, using your breakpoints workbook; how many PSAs are at or above the 90th and 97th; Southwest-median ERC, BI, 1000-hr fuel moisture and KBDI; 7-day changes; new fire starts over the last 7 days; time of year (pre-monsoon or monsoon).</li>
+      <li><b>Each PSA:</b> the same, using only that PSA. Its key-station ERC(Y) and BI averages and percentiles come from the workbook; the other values are the median of all RAWS in the PSA. Fire starts are only those that began in the PSA.</li>
+      <li>Lightning isn't used, because NOAA posts it weeks late. No weather forecasts are used.</li>
+    </ul>
+  </section>
+</main>
+<script>
+navBar();
+let F, sel = "sw", chart;
+const plColors = () => [1,2,3,4,5].map(i => getComputedStyle(document.documentElement).getPropertyValue('--pl' + i).trim());
+function scope(k) { return k === "sw" ? F.sw : F.psa[k]; }
+function upShade(p) { const a = Math.min(1, p / 0.6); return `rgba(224,88,43,${(0.06 + 0.5 * a).toFixed(2)})`; }
+
+function renderGrid() {
+  const rows = [["sw", "Southwest (all PSAs)"], ...Object.keys(F.psa).sort().map(k => [k, k])];
+  const days = (F.sw.days || []);
+  let h = `<tr><th>Area</th><th class="c">Today</th>${days.map(d => `<th class="c">+${d.h}d<br><span class="note">${d.date.slice(5)}</span></th>`).join("")}</tr>`;
+  for (const [k, name] of rows) {
+    const s = scope(k); if (!s || !s.days) continue;
+    h += `<tr class="click ${k === sel ? 'sel' : ''}" data-k="${k}"><td><b>${name}</b></td><td class="c">${plBadge(s.base_pl)}</td>` +
+      s.days.map(d => `<td class="day" style="background:${upShade(d.p_up || 0)}" title="${d.method}">${plBadge(d.most_likely)}<span class="up">↑ ${Math.round((d.p_up||0)*100)}%</span></td>`).join("") + `</tr>`;
+  }
+  const t = document.getElementById("grid"); t.innerHTML = h;
+  t.querySelectorAll("tr.click").forEach(r => r.onclick = () => { sel = r.dataset.k; renderGrid(); renderDetail(); });
+}
+
+function renderDetail() {
+  const s = scope(sel), days = s.days || [];
+  document.getElementById("oddsTitle").textContent = `Odds for each PL – ${sel === "sw" ? "Southwest" : sel}`;
+  const cols = plColors();
+  const ds = [1,2,3,4,5].map(l => ({ label: "PL " + l, data: days.map(d => Math.round(((d.probs || {})[l] || 0) * 100)), backgroundColor: cols[l-1], borderColor: getComputedStyle(document.documentElement).getPropertyValue('--surface-1'), borderWidth: 1 }))
+    .filter(d => d.data.some(v => v > 0));
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById("odds"), { type: "bar",
+    data: { labels: days.map(d => "+" + d.h + "d"), datasets: ds },
+    options: { maintainAspectRatio: false, animation: false, plugins: { legend: { position: "bottom" },
+      tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.raw}%` } } },
+      scales: { x: { stacked: true }, y: { stacked: true, max: 100, title: { display: true, text: "Chance (%)" } } } } });
+  document.getElementById("oddsTable").innerHTML = `<table style="margin-top:8px"><tr><th>Day</th>${[1,2,3,4,5].map(l => `<th class="num">PL ${l}</th>`).join("")}<th class="num">Higher</th><th class="num">Lower</th></tr>` +
+    days.map(d => `<tr><td>+${d.h}d ${d.date.slice(5)}</td>${[1,2,3,4,5].map(l => `<td class="num">${Math.round(((d.probs||{})[l]||0)*100)}%</td>`).join("")}<td class="num">${Math.round((d.p_up||0)*100)}%</td><td class="num">${Math.round((d.p_down||0)*100)}%</td></tr>`).join("") + `</table>`;
+  const bt = s.backtest || [];
+  document.getElementById("bt").innerHTML = bt.length ? `<table><tr><th>Days ahead</th><th class="num">Model right</th><th class="num">"Stays same" right</th><th class="num">PL changes caught</th><th class="num">Right when it called a change</th></tr>` +
+    bt.map(b => `<tr><td>+${b.h}d</td><td class="num">${Math.round(b.acc_model*100)}%</td><td class="num">${Math.round(b.acc_persist*100)}%</td>
+      <td class="num">${b.caught} of ${b.changes}${b.changes ? ` (${Math.round(100*b.caught/b.changes)}%)` : ""}</td>
+      <td class="num">${b.called_right} of ${b.called}${b.called ? ` (${Math.round(100*b.called_right/b.called)}%)` : ""}</td></tr>`).join("") + `</table>
+      <p class="note">Tested on ${bt[0].n.toLocaleString()} past days. Treat the odds as a heads-up, not a decision.</p>` : `<p class="note">The track record appears once enough history has loaded.</p>`;
+}
+
+(async () => {
+  try { F = await getJSON("data/forecast.json"); }
+  catch (e) { document.getElementById("meta").textContent = "No forecast yet. It appears after the first data runs."; return; }
+  const s = F.sw || {};
+  document.getElementById("meta").innerHTML = `Based on ${s.base_date || "–"} (Southwest PL ${s.base_pl ?? "–"}) · issued ${new Date(F.issued_utc).toLocaleString()} · ${F.method}` +
+    (s.note ? ` · <b>${s.note}</b>` : "");
+  if (window.innerWidth < 900) document.getElementById("lower").style.gridTemplateColumns = "1fr";
+  renderGrid(); renderDetail();
+})();
+</script>
+</body>
+</html>

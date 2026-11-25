@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Southwest PL – What Moves With It?</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f6f5f2; --surface-1: #ffffff; --border: #e2e0da;
+    --text-primary: #191919; --text-secondary: #666666; --grid: #ecebe7;
+    --series-1: #257de0; --series-2: #f47230; --accent: #b4441d;
+    --pl1: #84b9f3; --pl2: #519ced; --pl3: #2370cd; --pl4: #1757ac; --pl5: #0e3d7e;
+    --neg: #ec4647; --pos: #257de0; --mid: #efefef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-0: #121212; --surface-1: #191919; --border: #2e2e2e;
+      --text-primary: #efefef; --text-secondary: #9c9c9c; --grid: #2a2a2a;
+      --series-1: #338ced; --series-2: #e76624; --accent: #f08a5d;
+      --pl1: #b6d5f8; --pl2: #6aabf1; --pl3: #338ced; --pl4: #2370cd; --pl5: #1757ac;
+      --neg: #eb6263; --pos: #338ced; --mid: #383838;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  header { padding: 28px 24px 8px; max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--text-secondary); margin: 0; }
+  main { max-width: 1180px; margin: 0 auto; padding: 0 24px 60px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+          padding: 18px 20px; margin-top: 16px; }
+  .how { color: var(--text-secondary); font-size: 14px; margin: 2px 0 12px; }
+  nav.top { display: flex; gap: 4px; align-items: center; padding: 10px 24px; border-bottom: 1px solid var(--border);
+            background: var(--surface-1); position: sticky; top: 0; z-index: 20; flex-wrap: wrap; }
+  nav.top .brand { font-weight: 650; margin-right: 14px; }
+  nav.top a { color: var(--text-secondary); text-decoration: none; padding: 5px 12px; border-radius: 6px; font-size: 14px; }
+  nav.top a.on, nav.top a:hover { background: var(--surface-0); color: var(--text-primary); }
+  .fc-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .fc-cell { text-align: center; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; min-width: 64px; font-size: 13px; }
+  .plb { display: inline-block; min-width: 30px; text-align: center; border-radius: 4px; padding: 1px 6px; font-weight: 600; color: #fff; }
+  .plb1 { background: var(--pl1); color: #0e3d7e } .plb2 { background: var(--pl2); } .plb3 { background: var(--pl3); } .plb4 { background: var(--pl4); } .plb5 { background: var(--pl5); }
+  .controls { position: sticky; top: 45px; z-index: 5; display: flex; flex-wrap: wrap; gap: 14px 22px;
+              align-items: end; background: var(--surface-0); padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .controls label { display: flex; flex-direction: column; font-size: 12px; color: var(--text-secondary);
+                    text-transform: uppercase; letter-spacing: .04em; gap: 3px; }
+  select, button { font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 6px;
+                   border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary); }
+  select#varSel, select#yVarSel { max-width: 420px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; cursor: pointer; }
+  .seg button.on { background: var(--text-primary); color: var(--surface-1); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+  .findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .finding { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .finding .big { font-size: 28px; font-weight: 650; }
+  .finding .lbl { font-size: 13px; color: var(--text-secondary); }
+  .finding.flag { border-color: var(--accent); }
+  .finding.flag .tag { color: var(--accent); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+  th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.click { cursor: pointer; } tr.click:hover { background: var(--surface-0); }
+  tr.sel { outline: 2px solid var(--series-1); outline-offset: -2px; }
+  .bar { height: 10px; border-radius: 0 4px 4px 0; display: inline-block; vertical-align: middle; }
+  .heat td.cell { text-align: center; font-variant-numeric: tabular-nums; font-size: 13px; min-width: 64px; }
+  .chartbox { position: relative; height: 380px; }
+  .chartbox.short { height: 220px; }
+  .note { font-size: 13px; color: var(--text-secondary); }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; border: 1px solid var(--border); }
+  .lead-yes { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  details summary { cursor: pointer; font-weight: 600; }
+  code { font-size: 13px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); margin: 6px 0; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  #status { font-size: 13px; color: var(--text-secondary); }
+  .warn { background: #fff4e5; border: 1px solid #f2a600; color: #5c3b00; padding: 10px 14px; border-radius: 8px; margin-top: 12px; }
+  @media (prefers-color-scheme: dark) { .warn { background: #2d2412; color: #f5d48a; border-color: #8a6400; } }
+</style>
+</head>
+<body>
+<nav class="top"><span class="brand">Southwest PL</span><a href="index.html" class="on">Analysis</a><a href="explore.html">Explore</a><a href="bestfit.html">Best fit</a><a href="forecast.html">PL forecast</a><a href="map.html">Station map</a><a href="briefing.html">Briefing</a></nav>
+<header>
+  <h1>Southwest Preparedness Level: what moves with it, and what moves first?</h1>
+  <p class="sub">Every FEMS daily value from every RAWS station in the Southwest GACC, plus fire starts and acres, compared with the Southwest Area PL.
+     The page answers three questions: which values track PL, which ones change <em>before</em> PL changes,
+     and is there a value we aren't watching that does as well as ERC?</p>
+  <p id="status">Loading…</p>
+  <div id="warnings"></div>
+</header>
+
+<main>
+  <div class="controls">
+    <label>Days analyzed
+      <span class="seg" id="seasonSeg">
+        <button data-v="season" class="on">Mar–Oct</button><button data-v="pre">Pre-monsoon</button><button data-v="mon">Monsoon</button><button data-v="all">Full year</button>
+      </span>
+    </label>
+    <label>Monsoon split
+      <select id="splitSel"></select>
+    </label>
+    <label>Area
+      <select id="areaSel"><option value="SW">Southwest (all PSAs)</option></select>
+    </label>
+    <label>Value to look at
+      <select id="varSel"></select>
+    </label>
+    <label>Compare with PL
+      <select id="lagSel"></select>
+    </label>
+    <label>Show
+      <select id="variantSel">
+        <option value="all">All values</option>
+        <option value="base">Daily values only</option>
+        <option value="derived">Trends &amp; 7-day totals only</option>
+      </select>
+    </label>
+  </div>
+
+  <section class="card" id="fcCard" style="display:none">
+    <h2>7-day PL outlook <span class="note" style="font-weight:400" id="fcScope"></span></h2>
+    <p class="how">Most likely Southwest PL for each of the next 7 days, from observed FEMS data and the archive only. ↑ is the chance the PL will be higher than today's. <a href="forecast.html">Full outlook for every PSA →</a></p>
+    <div class="fc-row" id="fcRow"></div>
+  </section>
+
+  <!-- 1. Bottom line -->
+  <section class="card">
+    <h2>1. Bottom line</h2>
+    <p class="how">Written from the data each time it updates. "Match" is a correlation score from 0 (no relationship) to 1 (moves in lockstep).</p>
+    <div class="findings" id="findings"></div>
+  </section>
+
+  <!-- 2. Ranking -->
+  <section class="card">
+    <h2>2. Every value, ranked by how well it matches PL</h2>
+    <p class="how">Each value's best match across all lead times.
+      <b>Same-day</b> compares today's value with today's PL. <b>Best lead</b> is how many days ahead it matches PL best.
+      A <span class="pill lead-yes">leads PL</span> tag means the value matches future PL better than today's PL, so it moves first.
+      The <b>Pre-monsoon</b> and <b>Monsoon</b> columns show the same value's best match in each half of the season (split date set above), so you can see values that only matter in one half.
+      Click a row to load it into the charts below.</p>
+    <div style="max-height:520px; overflow:auto"><table id="rankTable"></table></div>
+  </section>
+
+  <!-- 3. Lead heatmap -->
+  <section class="card">
+    <h2>3. Lead-time table: does the value move before PL?</h2>
+    <p class="how">Rows are values (top 25). Columns compare today's value with PL that many days <em>later</em>.
+      Darker blue means a stronger match where the value rises with PL; darker red means a stronger match where it falls as PL rises (fuel moistures, humidity).
+      If a row gets darker to the right, that value is an early warning.</p>
+    <div style="overflow:auto"><table class="heat" id="heatTable"></table></div>
+  </section>
+
+  <!-- 4. Scatter -->
+  <section class="card">
+    <h2>4. Coordinate plane: the value (x) against PL (y)</h2>
+    <p class="how">Each dot is one day. PL dots are spread up and down slightly so they don't stack on one line.
+      The line is the straight-line trend. Squares mark the typical (median) value at each PL.
+      A clear upward slope with tight groups means a useful predictor; a flat cloud means none.
+      Switch <b>y-axis</b> to plot any two values against each other, colored by PL.</p>
+    <div class="controls" style="position:static;border:0;padding-top:0">
+      <label>Y-axis
+        <select id="yVarSel"></select>
+      </label>
+    </div>
+    <div class="chartbox"><canvas id="scatter"></canvas></div>
+    <p class="note" id="scatterNote"></p>
+  </section>
+
+  <div class="grid2">
+    <!-- 5. By PL -->
+    <section class="card">
+      <h2>5. Typical value at each PL</h2>
+      <p class="how">The bar spans the middle half of days (25th–75th percentile); the line runs 10th–90th; the dot is the median.
+        If the bars climb steadily with little overlap, the value separates PLs well. Where one PL's bar starts is a candidate breakpoint.</p>
+      <div class="chartbox"><canvas id="byPl"></canvas></div>
+      <div id="byPlTable"></div>
+    </section>
+
+    <!-- 6. Event study -->
+    <section class="card">
+      <h2>6. What it does before PL goes up</h2>
+      <p class="how">Averaged over every PL increase. Day 0 is the day PL rose. The value is shown as distance from that month's normal
+        (0 = normal, +1 = one standard deviation above normal). A curve already climbing at days −14 to −7 is a usable early signal.</p>
+      <div class="chartbox"><canvas id="event"></canvas></div>
+      <p class="note" id="eventNote"></p>
+    </section>
+  </div>
+
+  <!-- 7. Time series -->
+  <section class="card">
+    <h2>7. Through the season</h2>
+    <p class="how">PL (top) and the chosen value (bottom) share the same dates, so you can see which turns first. Separate panels rather than two y-axes, so neither scale is distorted.</p>
+    <div class="controls" style="position:static;border:0;padding-top:0">
+      <label>Year <select id="yearSel"></select></label>
+    </div>
+    <div class="chartbox short"><canvas id="tsPl"></canvas></div>
+    <div class="chartbox short"><canvas id="tsVar"></canvas></div>
+  </section>
+
+  <!-- 8. Method -->
+  <section class="card">
+    <h2>How this works and its limits</h2>
+    <details open>
+      <summary>Data</summary>
+      <ul>
+        <li><b>PL:</b> Southwest Area PL from the provided history sheet (2004 onward), with today's level read from the SWCC Fire Environment Report.
+          Feb 29 is missing from the sheet, so leap days are filled from Feb 28 and Mar 1 (same value if they match, otherwise the average rounded up). Filled days are marked <code>leap_fill</code> in <a href="data/sw_pl.csv">sw_pl.csv</a>.</li>
+        <li><b>FEMS:</b> daily NFDRS summary and daily weather summary from the FEMS public API for <span id="stationTxt"></span>.
+          Stations are every RAWS in Arizona and New Mexico that falls inside a current Southwest GACC Predictive Service Area (PSA), using the national PSA boundary layer. Texas and Oklahoma are not included, and Grand Canyon NP (Great Basin GACC) is excluded using the NPS park boundary, for both stations and fire starts. The list is refreshed weekly, and the update log names every station left out. <span id="psaTable"></span>
+          Each value is the <b>median across reporting stations</b> that day. The "% of stations in their highest/driest 10%" values count how many stations are at an extreme <em>for their own history</em>, a measure of how widespread the danger is.
+          <a href="data/status.json">Station list and update log</a>.</li>
+        <li><b>Fires:</b> wildfire starts with point of origin in Arizona or New Mexico, from the national WFIGS/IRWIN incident service, counted by discovery date (Arizona time). State is used rather than the record's GACC tag, because older records carry the old GACC boundary.
+          "Acres" is each fire's final size, credited to the day it started.</li>
+        <li><b>PSA ERC(Y) / BI:</b> key-station averages per PSA, using the method, station list and percentile breakpoints in the breakpoints workbook (<code>raw/breakpoints.xlsx</code>).
+          The Southwest values are the average PSA percentile and the number of PSAs at or above the 90th/97th.</li>
+        <li><b>Lightning:</b> NOAA NCEI daily cloud-to-ground flash counts (NLDN, 0.1° tiles) summed per PSA. NOAA posts it monthly, so the latest weeks are blank, not zero.</li>
+        <li><b>Acres burned per day:</b> the change in Southwest year-to-date acres in NICC's daily situation report (IMSR). Weekly reports are spread evenly over the week.</li>
+        <li><b>Area picker:</b> each PSA uses only its own stations, key-station ERC(Y)/BI, fire starts and lightning, compared with the Southwest PL.</li>
+        <li><b>Updates:</b> a GitHub Action runs every 15 minutes. It backfills a few station-years per run back to <span id="startTxt"></span>, then keeps the current year fresh.</li>
+      </ul>
+    </details>
+    <details>
+      <summary>Statistics, in plain terms</summary>
+      <ul>
+        <li><b>Match</b> is Spearman rank correlation. It suits PL because PL is a ranking (1–5), not a measurement. 0.6+ is strong, 0.4–0.6 moderate, 0.2–0.4 weak, below 0.2 essentially none.</li>
+        <li><b>Lead</b>: today's value vs. PL N days later. Because PL changes slowly, nearby lead times always score similarly. Look for a clear improvement, not tiny differences.</li>
+        <li><b>Mar–Oct</b> (default) is the whole Southwest fire year. <b>Pre-monsoon</b> runs from Mar 1 to the split date; <b>Monsoon</b> runs from the split date to Oct 31. The split can be set to Jul 1, 8 or 15.
+          The two halves often behave differently: dry fuels and wind drive the pre-monsoon season, while lightning and rain drive the monsoon. A value can matter in one and not the other.
+          Full year includes winter, when PL sits at 1, which makes anything seasonal look correlated.</li>
+        <li><b>"Change over 7 days"</b> versions test whether a fast rise matters more than the level. <b>"7-day total"</b> smooths noisy daily fire counts.</li>
+        <li>Correlation is not cause. PL is a human decision that also weighs resource drawdown, national PL, and fires elsewhere, which no weather value captures.</li>
+      </ul>
+    </details>
+    <details>
+      <summary>Known gaps</summary>
+      <ul>
+        <li>"Acres of fires started that day" credits each fire's final size to its start day; "Acres burned per day (IMSR)" is the day-by-day growth.</li>
+        <li>Stations have different record lengths. The median uses whoever reported that day, and the "Stations reporting" value is in the downloads.</li>
+      </ul>
+    </details>
+    <p class="note">Raw tables: <a href="data/sw_pl.csv">PL</a> · <a href="data/fems_daily.csv">FEMS daily</a> · <a href="data/fires_daily.csv">fires daily</a> · <a href="data/analysis.json">all results (JSON)</a> · <a href="data/status.json">update log</a></p>
+  </section>
+</main>
+
+<script>
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const PLC = () => [1,2,3,4,5].map(i => css('--pl'+i));
+let D, A, S, FC = null, charts = {}, area = 'SW';
+const state = { season: 'season', split: null, v: null, lag: 0, y: 'pl', variant: 'all', year: null };
+const pkey = () => (state.season === 'pre' || state.season === 'mon') ? state.season + '_' + state.split : state.season;
+
+const fmt = (x, d=2) => x == null ? '–' : (+x).toFixed(d);
+const pct = r => r == null ? '–' : Math.round(Math.abs(r)*100) + '%';
+const words = r => {
+  if (r == null) return 'not enough data';
+  const a = Math.abs(r), dir = r > 0 ? 'higher when PL is higher' : 'lower when PL is higher';
+  if (a >= .6) return 'strong match: ' + dir;
+  if (a >= .4) return 'moderate match: ' + dir;
+  if (a >= .2) return 'weak match: ' + dir;
+  return 'little or no match';
+};
+const isDerived = v => v.includes('__');
+const shortLbl = v => (A.labels[v] || v).replace(/ \[[^\]]+\]/, '');
+const WATCHED = /(erc|energy_release|burning|kbdi)/i;   // values most offices already watch
+
+async function fetchScope(a) {
+  const base = a === 'SW' ? 'data/' : `data/psa/${a}_`;
+  return Promise.all([base + 'daily.json', base + 'analysis.json'].map(u => fetch(u, {cache:'no-store'}).then(r => { if (!r.ok) throw new Error(u); return r.json(); })));
+}
+async function load() {
+  try {
+    [D, A] = await fetchScope('SW');
+  } catch (e) {
+    document.getElementById('status').textContent = 'No results yet. The first GitHub Action run creates them (Actions tab → "Update data and publish" → Run workflow).';
+    return;
+  }
+  try { S = await fetch('data/status.json', {cache:'no-store'}).then(r => r.json()); } catch (e) { S = null; }
+  try { FC = await fetch('data/forecast.json', {cache:'no-store'}).then(r => r.json()); } catch (e) { FC = null; }
+  const as = document.getElementById('areaSel');
+  ((S && S.psas) || []).forEach(c => as.insertAdjacentHTML('beforeend', `<option value="${c}">${c}</option>`));
+  as.onchange = async () => {
+    try { [D, A] = await fetchScope(as.value); area = as.value; }
+    catch (e) { alert('Results for ' + as.value + ' are not ready yet. PSAs are analyzed a few per run.'); as.value = area; return; }
+    document.querySelector('header .sub').innerHTML = area === 'SW'
+      ? 'Every FEMS daily value from every RAWS station in the Southwest GACC, plus fire starts, lightning and acres, compared with the Southwest Area PL.'
+      : `<b>${area} only:</b> this PSA's FEMS values (median of its RAWS), its key-station ERC(Y)/BI from the workbook, and its fire starts and lightning, compared with the Southwest PL.`;
+    fillYears(); renderAll(); renderForecast();
+  };
+  initControls(); renderAll(); renderForecast();
+}
+function renderForecast() {
+  const s = FC && (area === 'SW' ? FC.sw : (FC.psa || {})[area]);
+  const card = document.getElementById('fcCard');
+  if (!s || !s.days || !s.days.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('fcScope').textContent = `· ${area === 'SW' ? 'Southwest' : area + ' data only'} · from ${s.base_date} (PL ${s.base_pl})`;
+  document.getElementById('fcRow').innerHTML = s.days.map(d => `<div class="fc-cell">+${d.h}d<br><span class="plb plb${d.most_likely}">PL ${d.most_likely}</span><br><span class="note">↑ ${Math.round((d.p_up||0)*100)}%</span></div>`).join('');
+}
+
+function rankList() {
+  return A.ranking[pkey()].filter(e => e.best_r != null)
+    .filter(e => state.variant === 'all' || (state.variant === 'base' ? !isDerived(e.var) : isDerived(e.var)));
+}
+
+function initControls() {
+  const upd = new Date(A.generated_utc);
+  const c = A.coverage, fems = Object.keys(c).filter(k => k.startsWith('fems_') && !isDerived(k));
+  const fire = c.fire_new_starts;
+  const span = k => c[k] && c[k].first ? `${c[k].first} → ${c[k].last}` : 'not loaded yet';
+  const st = (S && S.stations) || [];
+  const nPsa = new Set(st.map(x => x.psa).filter(Boolean)).size;
+  const stTxt = st.length ? `${st.length} RAWS stations in ${nPsa} Southwest PSAs` : 'stations not listed yet';
+  const bf = S && S.fems_backfill_pct != null ? ` · FEMS history ${S.fems_backfill_pct}% loaded` : '';
+  document.getElementById('status').innerHTML =
+    `Updated ${upd.toLocaleString()} · ${stTxt}${bf} · PL ${span('pl')} · FEMS ${fems.length ? span(fems[0]) : 'not loaded yet'} · Fires ${fire ? span('fire_new_starts') : 'not loaded yet'}`;
+  const byPsa = {};
+  st.forEach(x => { const k = x.psa || '?'; byPsa[k] = byPsa[k] || { name: x.psa_name || '', n: 0 }; byPsa[k].n++; });
+  document.getElementById('psaTable').innerHTML = st.length ? '<br>Stations per PSA: ' +
+    Object.keys(byPsa).sort().map(k => `${k} ${byPsa[k].name} (${byPsa[k].n})`).join(' · ') + '.' : '';
+  document.getElementById('stationTxt').textContent = `${stTxt}, fuel model ${A.config.fuel_models.join(', ')}`;
+  document.getElementById('startTxt').textContent = A.config.start_year;
+
+  const w = [];
+  if (!fems.length) w.push('FEMS values have not loaded yet. The backfill runs about 100 station-years per run, so give it an hour, or check the update log.');
+  else if (S && S.fems_backfill_pct < 100) w.push(`FEMS history is ${S.fems_backfill_pct}% loaded (newest years first). Results firm up as older years arrive; a full Southwest backfill takes roughly 10 hours.`);
+  if (!fire) w.push('Fire starts have not loaded yet.');
+  if (S && S.log) { const fails = S.log.filter(l => /failed|crashed/.test(l)); if (fails.length) w.push('Last run had ' + fails.length + ' failed request(s). See the <a href="data/status.json">update log</a>. Failed pieces retry automatically.'); }
+  document.getElementById('warnings').innerHTML = w.map(t => `<div class="warn">${t}</div>`).join('');
+
+  const lagSel = document.getElementById('lagSel');
+  lagSel.innerHTML = A.config.lags.map(l => `<option value="${l}">${l === 0 ? 'Same day' : l + ' days later'}</option>`).join('');
+  lagSel.onchange = () => { state.lag = +lagSel.value; renderCharts(); };
+
+  const spSel = document.getElementById('splitSel');
+  const md = x => new Date('2000-' + x + 'T12:00').toLocaleDateString(undefined, {month:'short', day:'numeric'});
+  spSel.innerHTML = A.config.splits.map(x => `<option value="${x}">${md(x)}</option>`).join('');
+  state.split = A.config.default_split; spSel.value = state.split;
+  spSel.onchange = () => { state.split = spSel.value; renderAll(); };
+  document.querySelectorAll('#seasonSeg button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('#seasonSeg button').forEach(x => x.classList.toggle('on', x === b));
+    state.season = b.dataset.v; renderAll();
+  });
+  document.getElementById('variantSel').onchange = e => { state.variant = e.target.value; renderAll(); };
+
+  fillYears();
+}
+function fillYears() {
+  const years = [...new Set(D.date.map(d => d.slice(0,4)))].reverse();
+  const ys = document.getElementById('yearSel');
+  ys.innerHTML = years.map(y => `<option>${y}</option>`).join('');
+  state.year = years.find(y => D.date.some((d,i) => d.startsWith(y) && D.pl[i] >= 3)) || years[0];
+  ys.value = state.year; ys.onchange = () => { state.year = ys.value; renderTS(); };
+}
+
+function fillVarSelects() {
+  const list = rankList();
+  if (!state.v || !list.find(e => e.var === state.v)) state.v = list.length ? list[0].var : null;
+  const vs = document.getElementById('varSel');
+  vs.innerHTML = list.map((e,i) => `<option value="${e.var}">${i+1}. ${shortLbl(e.var)}  (${pct(e.best_r)})</option>`).join('');
+  vs.value = state.v; vs.onchange = () => selectVar(vs.value);
+  const yv = document.getElementById('yVarSel');
+  yv.innerHTML = `<option value="pl">Southwest PL</option>` + list.map(e => `<option value="${e.var}">${shortLbl(e.var)}</option>`).join('');
+  yv.value = state.y; yv.onchange = () => { state.y = yv.value; renderScatter(); };
+}
+
+function selectVar(v) { state.v = v; document.getElementById('varSel').value = v; renderTable(); renderCharts(); }
+
+function renderAll() { fillVarSelects(); renderFindings(); renderTable(); renderHeat(); renderCharts(); }
+function renderCharts() { renderScatter(); renderByPl(); renderEvent(); renderTS(); }
+
+function renderFindings() {
+  const list = rankList(), el = document.getElementById('findings');
+  if (!list.length) { el.innerHTML = '<p class="note">Not enough overlapping data yet.</p>'; return; }
+  const best = list[0];
+  const leaders = list.filter(e => e.leads).slice(0, 1)[0];
+  const erc = list.find(e => /(erc|energy_release)/i.test(e.var) && !isDerived(e.var));
+  const unwatched = list.filter(e => !WATCHED.test(e.var) && !e.var.startsWith('fire_'));
+  const surprise = unwatched.find(e => erc ? Math.abs(e.best_r) >= Math.abs(erc.best_r) - 0.05 : Math.abs(e.best_r) >= 0.4);
+  const fire = list.find(e => e.var.startsWith('fire_'));
+  const cards = [];
+  cards.push(`<div class="finding"><div class="lbl">Closest match to PL</div><div class="big">${pct(best.best_r)}</div>
+    <div><b>${shortLbl(best.var)}</b>: ${words(best.best_r)}${best.best_lag ? `, best ${best.best_lag} days ahead` : ', same day'}.</div></div>`);
+  if (erc) cards.push(`<div class="finding"><div class="lbl">ERC, the usual benchmark</div><div class="big">${pct(erc.best_r)}</div>
+    <div>Ranks #${list.indexOf(erc)+1} of ${list.length}. Same-day ${pct(erc.same_day_r)}, best ${erc.best_lag ? erc.best_lag + ' days ahead' : 'same day'}.</div></div>`);
+  if (leaders) cards.push(`<div class="finding"><div class="lbl">Best early-warning value</div><div class="big">${leaders.best_lag} days</div>
+    <div><b>${shortLbl(leaders.var)}</b> matches PL ${leaders.best_lag} days out (${pct(leaders.best_r)}) better than same-day (${pct(leaders.same_day_r)}).</div></div>`);
+  else cards.push(`<div class="finding"><div class="lbl">Early-warning value</div><div class="big">None clear</div><div>No value matches future PL clearly better than today's PL.</div></div>`);
+  if (surprise) cards.push(`<div class="finding flag"><div class="tag">Possibly not being watched</div><div class="big">${pct(surprise.best_r)}</div>
+    <div><b>${shortLbl(surprise.var)}</b> does about as well as ${erc ? 'ERC' : 'the top values'} (${words(surprise.best_r)}). Worth a look.</div></div>`);
+  const pre = (A.ranking['pre_' + state.split] || []).find(e => e.best_r != null);
+  const mon = (A.ranking['mon_' + state.split] || []).find(e => e.best_r != null);
+  if (pre && mon) cards.push(`<div class="finding${pre.var !== mon.var ? ' flag' : ''}">${pre.var !== mon.var ? '<div class="tag">Changes with the monsoon</div>' : '<div class="lbl">Pre-monsoon vs monsoon</div>'}
+    <div style="margin-top:4px">Before ${document.getElementById('splitSel').selectedOptions[0].text}: <b>${shortLbl(pre.var)}</b> (${pct(pre.best_r)})</div>
+    <div>After: <b>${shortLbl(mon.var)}</b> (${pct(mon.best_r)})</div></div>`);
+  if (fire) cards.push(`<div class="finding"><div class="lbl">Best fire-activity measure</div><div class="big">${pct(fire.best_r)}</div>
+    <div><b>${shortLbl(fire.var)}</b>: ${words(fire.best_r)}${fire.best_lag ? `, best ${fire.best_lag} days ahead` : ''}.</div></div>`);
+  el.innerHTML = cards.join('');
+}
+
+function renderTable() {
+  const list = rankList(), lagKey = String(state.lag);
+  const toMap = k => Object.fromEntries((A.ranking[k] || []).map(e => [e.var, e]));
+  const preMap = toMap('pre_' + state.split), monMap = toMap('mon_' + state.split);
+  const rows = list.map((e,i) => {
+    const r = e.best_r, w = Math.round(Math.abs(r) * 120);
+    const col = r >= 0 ? 'var(--pos)' : 'var(--neg)';
+    return `<tr class="click ${e.var === state.v ? 'sel' : ''}" data-v="${e.var}">
+      <td class="num">${i+1}</td><td>${A.labels[e.var] || e.var}</td>
+      <td><span class="bar" style="width:${w}px;background:${col}"></span> <span class="num">${pct(r)}</span></td>
+      <td>${words(r)}</td>
+      <td class="num">${pct(e.same_day_r)}</td>
+      <td class="num">${e.best_lag ?? '–'}${e.best_lag != null ? ' d' : ''} ${e.leads ? '<span class="pill lead-yes">leads PL</span>' : ''}</td>
+      <td class="num">${pct((preMap[e.var] || {}).best_r)}</td>
+      <td class="num">${pct((monMap[e.var] || {}).best_r)}</td>
+      <td class="num">${(e.lags[lagKey] || {}).n ?? '–'}</td></tr>`;
+  }).join('');
+  const t = document.getElementById('rankTable');
+  t.innerHTML = `<thead><tr><th>#</th><th>Value</th><th>Best match</th><th>In words</th><th>Same-day</th><th>Best lead</th><th>Pre-monsoon</th><th>Monsoon</th><th>Days used</th></tr></thead><tbody>${rows}</tbody>`;
+  t.querySelectorAll('tr.click').forEach(tr => tr.onclick = () => selectVar(tr.dataset.v));
+}
+
+function heatColor(r) {
+  if (r == null) return 'transparent';
+  const a = Math.min(1, Math.abs(r) / 0.8);
+  const base = r >= 0 ? [37,125,224] : [236,70,71];
+  return `rgba(${base.join(',')},${(0.08 + 0.85*a).toFixed(2)})`;
+}
+function renderHeat() {
+  const list = rankList().slice(0, 25), lags = A.config.lags;
+  const head = `<tr><th>Value</th>${lags.map(l => `<th style="text-align:center">${l === 0 ? 'Same day' : '+' + l + ' d'}</th>`).join('')}</tr>`;
+  const body = list.map(e => `<tr class="click" data-v="${e.var}"><td>${shortLbl(e.var)}</td>${lags.map(l => {
+      const r = (e.lags[String(l)] || {}).spearman;
+      const dark = r != null && Math.abs(r) > 0.45;
+      return `<td class="cell" style="background:${heatColor(r)};color:${dark ? '#fff' : 'inherit'}" title="${shortLbl(e.var)} vs PL ${l} days later: ${fmt(r)}">${fmt(r)}</td>`;
+    }).join('')}</tr>`).join('');
+  const t = document.getElementById('heatTable');
+  t.innerHTML = head + body;
+  t.querySelectorAll('tr.click').forEach(tr => tr.onclick = () => { selectVar(tr.dataset.v); document.getElementById('scatter').scrollIntoView({behavior:'smooth', block:'center'}); });
+}
+
+function inSeason(dstr) {
+  const md = dstr.slice(5), c = A.config, sp = state.split;
+  if (state.season === 'all') return true;
+  if (md < c.season_start || md > c.season_end) return false;
+  if (state.season === 'pre') return md < sp;
+  if (state.season === 'mon') return md >= sp;
+  return true;
+}
+
+function chartDefaults() {
+  Chart.defaults.color = css('--text-secondary');
+  Chart.defaults.borderColor = css('--grid');
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+}
+function mk(id, cfg) { if (charts[id]) charts[id].destroy(); charts[id] = new Chart(document.getElementById(id), cfg); }
+
+function renderScatter() {
+  chartDefaults();
+  const v = state.v; if (!v) return;
+  const x = D[v], lag = state.lag, n = D.date.length;
+  const yIsPl = state.y === 'pl';
+  const pts = [], byLevel = {1:[],2:[],3:[],4:[],5:[]};
+  // deterministic jitter so dots don't jump when re-rendered
+  const jit = i => (((i * 9301 + 49297) % 233280) / 233280 - 0.5) * 0.5;
+  for (let i = 0; i + lag < n; i++) {
+    if (!inSeason(D.date[i])) continue;
+    const xv = x[i];
+    const plv = D.pl[i + lag];
+    const yv = yIsPl ? plv : D[state.y][i];
+    if (xv == null || yv == null || plv == null) continue;
+    const p = { x: xv, y: yIsPl ? yv + jit(i) : yv, d: D.date[i], pl: plv };
+    pts.push(p);
+    (byLevel[plv] || []).push(p);
+  }
+  const datasets = [];
+  if (yIsPl) {
+    datasets.push({ type:'scatter', label:'One day', data: pts, pointRadius: 2.5, pointHoverRadius: 6,
+      backgroundColor: css('--series-1') + '55', borderWidth: 0 });
+    const med = [1,2,3,4,5].map(l => {
+      const xs = pts.filter(p => p.pl === l).map(p => p.x).sort((a,b) => a-b);
+      return xs.length >= 5 ? { x: xs[Math.floor(xs.length/2)], y: l, n: xs.length } : null; }).filter(Boolean);
+    datasets.push({ type:'scatter', label:'Median value at each PL', data: med, pointStyle:'rect', pointRadius: 8,
+      backgroundColor: css('--series-2'), borderColor: css('--surface-1'), borderWidth: 2 });
+    if (pts.length > 10) {
+      const mx = pts.reduce((s,p)=>s+p.x,0)/pts.length, my = pts.reduce((s,p)=>s+p.pl,0)/pts.length;
+      let sxy = 0, sxx = 0; pts.forEach(p => { sxy += (p.x-mx)*(p.pl-my); sxx += (p.x-mx)**2; });
+      const b = sxx ? sxy/sxx : 0, a = my - b*mx;
+      const xmin = Math.min(...pts.map(p=>p.x)), xmax = Math.max(...pts.map(p=>p.x));
+      datasets.push({ type:'line', label:'Trend line', data:[{x:xmin,y:a+b*xmin},{x:xmax,y:a+b*xmax}],
+        borderColor: css('--text-primary'), borderWidth: 2, pointRadius: 0, borderDash:[6,4] });
+    }
+  } else {
+    PLC().forEach((c, k) => { const l = k+1; if (byLevel[l].length) datasets.push({ type:'scatter', label:'PL ' + l, data: byLevel[l],
+      pointRadius: 3, pointHoverRadius: 6, backgroundColor: c, borderColor: css('--surface-1'), borderWidth: 1 }); });
+  }
+  const e = A.ranking[pkey()].find(z => z.var === v);
+  const r = e && e.lags[String(lag)] ? e.lags[String(lag)].spearman : null;
+  document.getElementById('scatterNote').textContent = yIsPl
+    ? `${pts.length} days. ${shortLbl(v)} vs PL ${lag ? lag + ' days later' : 'the same day'}: match ${pct(r)}, ${words(r)}.`
+    : `${pts.length} days. Dots are colored by PL ${lag ? lag + ' days later' : 'that day'}. Look for a corner where only high-PL colors appear.`;
+  mk('scatter', {
+    type: 'scatter',
+    data: { datasets },
+    options: { maintainAspectRatio: false, animation: false, parsing: false,
+      plugins: { legend: { position: 'bottom' },
+        tooltip: { callbacks: { label: c => {
+          const p = c.raw; if (p.d) return `${p.d}: ${shortLbl(v)} ${fmt(p.x,1)}, PL ${p.pl}${!yIsPl ? ', y ' + fmt(p.y,1) : ''}`;
+          if (p.n) return `PL ${p.y}: median ${fmt(p.x,1)} (${p.n} days)`; return 'Trend'; } } } },
+      scales: {
+        x: { type: 'linear', title: { display: true, text: shortLbl(v) } },
+        y: yIsPl ? { min: 0.5, max: 5.5, ticks: { stepSize: 1, callback: t => Number.isInteger(t) ? 'PL ' + t : '' },
+                     title: { display: true, text: 'Southwest PL' + (lag ? ` (${lag} days later)` : '') } }
+                 : { title: { display: true, text: shortLbl(state.y) } } } }
+  });
+}
+
+function renderByPl() {
+  chartDefaults();
+  const v = state.v, bp = (A.by_pl[pkey()] || {})[v] || {};
+  const levels = Object.keys(bp).sort();
+  const cols = PLC();
+  mk('byPl', {
+    type: 'bar',
+    data: { labels: levels.map(l => 'PL ' + l), datasets: [
+      { type:'bar', label:'Middle half of days (25th–75th)', data: levels.map(l => [bp[l].p25, bp[l].p75]),
+        backgroundColor: levels.map(l => cols[+l-1]), borderRadius: 4, borderSkipped: false, barPercentage: 0.5, grouped: false, order: 2 },
+      { type:'bar', label:'10th–90th', data: levels.map(l => [bp[l].p10, bp[l].p90]),
+        backgroundColor: css('--text-secondary'), barPercentage: 0.04, grouped: false, order: 3 },
+      { type:'line', showLine: false, label:'Median', data: levels.map(l => bp[l].median),
+        pointRadius: 6, pointHoverRadius: 8, backgroundColor: css('--surface-1'), borderColor: css('--text-primary'), borderWidth: 2, order: 1 } ] },
+    options: { maintainAspectRatio: false, animation: false,
+      plugins: { legend: { position:'bottom' }, tooltip: { callbacks: { label: c => {
+        const l = levels[c.dataIndex], s = bp[l];
+        return `PL ${l}: median ${fmt(s.median,1)}, middle half ${fmt(s.p25,1)}–${fmt(s.p75,1)}, ${s.n} days`; } } } },
+      scales: { x: { stacked: false }, y: { title: { display: true, text: shortLbl(v) } } } }
+  });
+  document.getElementById('byPlTable').innerHTML = `<table style="margin-top:8px"><tr><th>PL</th><th class="num">Days</th><th class="num">Median</th><th class="num">Middle half</th></tr>` +
+    levels.map(l => `<tr><td>PL ${l}</td><td class="num">${bp[l].n}</td><td class="num">${fmt(bp[l].median,1)}</td><td class="num">${fmt(bp[l].p25,1)} – ${fmt(bp[l].p75,1)}</td></tr>`).join('') + '</table>';
+}
+
+function renderEvent() {
+  chartDefaults();
+  const ev = A.raise_events[pkey()], curve = ev.curves[state.v] || [];
+  mk('event', {
+    type: 'line',
+    data: { labels: ev.days, datasets: [{ label: shortLbl(state.v), data: curve, borderColor: css('--series-1'),
+      borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, spanGaps: true, tension: 0.2 }] },
+    options: { maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { callbacks: {
+        title: c => `Day ${c[0].label} ${+c[0].label < 0 ? '(before PL rose)' : +c[0].label === 0 ? '(PL rose)' : '(after)'}`,
+        label: c => `${fmt(c.raw)} std. dev. from normal` } } },
+      scales: { x: { title: { display: true, text: 'Days from PL increase (0 = day PL went up)' },
+                     ticks: { callback: (val, i) => ev.days[i] % 5 === 0 ? ev.days[i] : '' },
+                     grid: { color: c => ev.days[c.index] === 0 ? css('--text-secondary') : css('--grid') } },
+                y: { title: { display: true, text: 'vs. normal for the month' } } } }
+  });
+  const pre = curve.slice(16, 24).filter(x => x != null);  // days -14..-7
+  const avg = pre.length ? pre.reduce((a,b)=>a+b,0)/pre.length : null;
+  document.getElementById('eventNote').textContent = `${ev.n_events} PL increases since ${A.config.start_year}. ` +
+    (avg == null ? '' : Math.abs(avg) >= 0.5 ? `Two weeks to one week before a raise, this value averages ${fmt(avg)} std. dev. from normal, a noticeable early signal.`
+                   : `Two weeks to one week before a raise, this value is close to normal (${fmt(avg)}), so it is not an early signal.`);
+}
+
+function renderTS() {
+  chartDefaults();
+  const y = state.year, idx = D.date.map((d,i) => d.startsWith(y) ? i : -1).filter(i => i >= 0);
+  const labels = idx.map(i => D.date[i].slice(5));
+  const common = { maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 12 } } } };
+  mk('tsPl', { type: 'line', data: { labels, datasets: [{ label: 'Southwest PL', data: idx.map(i => D.pl[i]), stepped: true,
+      borderColor: css('--series-2'), borderWidth: 2, pointRadius: 0 }] },
+    options: { ...common, scales: { ...common.scales, y: { min: 0.5, max: 5.5, ticks: { stepSize: 1 }, title: { display: true, text: 'PL' } } } } });
+  mk('tsVar', { type: 'line', data: { labels, datasets: [{ label: shortLbl(state.v), data: idx.map(i => D[state.v] ? D[state.v][i] : null),
+      borderColor: css('--series-1'), borderWidth: 2, pointRadius: 0, spanGaps: false }] },
+    options: { ...common, scales: { ...common.scales, y: { title: { display: true, text: shortLbl(state.v).slice(0, 40) } } } } });
+}
+
+load();
+</script>
+</body>
+</html>
