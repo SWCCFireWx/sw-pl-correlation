@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explore correlations – SW PL</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="common.js"></script>
+<style>
+  .layout { display: grid; grid-template-columns: 330px 1fr; gap: 16px; align-items: start; }
+  .layout > section, .two > .card { min-width: 0; }
+  @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
+  .panel { position: sticky; top: 56px; max-height: calc(100vh - 70px); overflow: auto; }
+  .panel h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); margin: 14px 0 6px; }
+  .panel label { display: block; font-size: 12px; color: var(--text-secondary); margin: 6px 0 2px; }
+  .panel select, .panel input[type=number], .panel input[type=text] { width: 100%; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .varrow { border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin-bottom: 6px; }
+  .varrow .hd { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--border); cursor: pointer; user-select: none; }
+  .chip.off { opacity: .35; text-decoration: line-through; }
+  input[type=range] { width: 100%; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .stat { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+  .stat .big { font-size: 24px; font-weight: 650; } .stat .lbl { font-size: 12px; color: var(--text-secondary); }
+  .chartbox { position: relative; height: 340px; } .chartbox.short { height: 220px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; } @media (max-width: 1200px) { .two { grid-template-columns: 1fr; } }
+  .heat td.cell { text-align: center; font-size: 12px; cursor: pointer; min-width: 40px; font-variant-numeric: tabular-nums; }
+  .heat td.best { outline: 2px solid var(--text-primary); outline-offset: -2px; font-weight: 700; }
+  .formula { font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: var(--surface-0); padding: 8px 10px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>Explore: build your own fit</h1>
+  <p class="sub">Choose values, smoothing, lead time, days and years, and see how well the result tracks the Southwest PL. Everything recalculates instantly.
+    Add up to three values and the page weights them automatically. "Find best settings" scans every smoothing and lead combination for the first value.</p>
+</header>
+<main>
+<div class="layout">
+  <aside class="card panel">
+    <h3>Data</h3>
+    <label>Area</label><select id="area"><option value="SW">Southwest (all PSAs)</option></select>
+    <label>Days</label>
+    <select id="period"><option value="season">Mar–Oct</option><option value="pre">Pre-monsoon</option><option value="mon">Monsoon</option><option value="all">Full year</option><option value="custom">Custom dates…</option></select>
+    <div class="row2" id="splitRow"><div><label>Monsoon split</label><select id="split"><option>07-01</option><option selected>07-08</option><option>07-15</option></select></div><div></div></div>
+    <div class="row2" id="customRow" style="display:none"><div><label>From (MM-DD)</label><input type="text" id="cFrom" value="04-01"></div><div><label>To (MM-DD)</label><input type="text" id="cTo" value="07-15"></div></div>
+    <label>Years (click to leave a year out)</label><div class="chips" id="years"></div>
+
+    <h3>Values (up to 3)</h3>
+    <div id="vars"></div>
+    <button id="addVar">+ Add a value</button>
+    <label style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="showAll"> Show all values (not just the common ones)</label>
+
+    <h3>Compare with</h3>
+    <label>PL this many days later: <b id="leadTxt">0</b></label>
+    <input type="range" id="lead" min="0" max="30" value="0">
+    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px">More settings</summary>
+      <label>Only days when today's PL is</label>
+      <select id="plNow"><option value="any">Any PL</option><option value="1">PL 1</option><option value="2">PL 2</option><option value="3">PL 3</option><option value="4">PL 4+</option></select>
+      <label>Match measure</label>
+      <select id="method"><option value="spearman">Rank (Spearman), best for PL</option><option value="pearson">Straight-line (Pearson)</option></select>
+    </details>
+    <h3>Search</h3>
+    <button class="primary" id="gridBtn" style="width:100%">Find best settings for value 1</button>
+    <p class="note">Tries every smoothing × every lead from 0 to 30 days.</p>
+    <button id="csvBtn" style="width:100%;margin-top:6px">Download these days as CSV</button>
+    <button id="linkBtn" style="width:100%;margin-top:6px">Copy link to these settings</button>
+  </aside>
+
+  <section>
+    <div class="card">
+      <h2 id="title">Result</h2>
+      <div class="stats" id="stats"></div>
+      <p class="note" id="formula"></p>
+    </div>
+    <div class="two">
+      <div class="card"><h2>Coordinate plane</h2><p class="how">Each dot is a day: the value or combined score (x) against the PL that many days later (y). Squares mark the median at each PL; the dashed line is the straight-line trend.</p>
+        <div class="chartbox"><canvas id="scatter"></canvas></div></div>
+      <div class="card"><h2>Match vs lead time</h2><p class="how">The same settings, compared with the PL 0 to 30 days later. A peak to the right of 0 means the value moves before the PL does.</p>
+        <div class="chartbox"><canvas id="leadChart"></canvas></div></div>
+    </div>
+    <div class="card" id="gridCard" style="display:none"><h2>Best settings search</h2><p class="how" id="gridHow"></p><div style="overflow:auto"><table class="heat" id="grid"></table></div></div>
+    <div class="two">
+      <div class="card"><h2>Year by year</h2><p class="how">The match within each year. A good indicator works in most years, not just one big season.</p>
+        <div class="chartbox short"><canvas id="yearChart"></canvas></div></div>
+      <div class="card"><h2>PL breakpoints for this fit</h2><p class="how">The value of the score that best separates each PL from the next, and how often that cut is right (balanced accuracy, where 50% is a coin flip).</p>
+        <div id="bp"></div></div>
+    </div>
+    <div class="card"><h2>Through a season</h2>
+      <div class="bar-controls" style="margin-top:0"><label>Year <select id="tsYear"></select></label></div>
+      <div class="chartbox short"><canvas id="tsPl"></canvas></div><div class="chartbox short"><canvas id="tsScore"></canvas></div></div>
+  </section>
+</div>
+</main>
+<script>
+navBar();
+const C = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let D = null, LBL = {}, BASE = [], charts = {}, offYears = new Set(), area = 'SW';
+const SUMMED = /^(fire_|imsr_)/;
+const TF = v => SUMMED.test(v)
+  ? [['raw','as-is'],['s7','7-day total'],['s14','14-day total'],['s30','30-day total']]
+  : [['raw','as-is'],['m3','3-day average'],['m7','7-day average'],['m14','14-day average'],['m30','30-day average'],['c7','7-day change'],['c14','14-day change']];
+let VARS = [];   // [{v, t}]
+const COMMON = ['psa_erc_pct_mean','psa_bi_pct_mean','psa_n_erc_90','psa_n_erc_97','psa_n_bi_90','psa_erc_pct','psa_bi_pct','psa_erc_avg','psa_bi_avg',
+  'fems_erc','fems_bi','fems_sc','fems_ic','fems_kbdi','fems_gsi','fems_1_hr_fm','fems_10_hr_fm','fems_100_hr_fm','fems_1000_hr_fm','fems_herb_fm','fems_woody_fm',
+  'wx_vpdmax','wx_temperature_max','wx_relative_humidity_min','wx_wind_speed_max','wx_gust_speed_max','wx_precipitation24hr',
+  'fire_new_starts','fire_lightning_starts','fire_new_large_fires','fire_new_start_acres','imsr_sw_acres_growth'];
+const GROUPS = [['PSA ERC(Y) / BI (workbook)', /^psa_/], ['FEMS fire danger', /^fems_/], ['Weather', /^wx_/], ['Fire activity', /^(fire_|imsr_)/]];
+
+// ---------- math
+function roll(a, w, f) { const o = new Array(a.length).fill(null); let s = 0, n = 0; const q = [];
+  for (let i = 0; i < a.length; i++) { q.push(a[i]); if (a[i] != null) { s += a[i]; n++; }
+    if (q.length > w) { const x = q.shift(); if (x != null) { s -= x; n--; } }
+    if (q.length === w && n >= (f === 'sum' ? w : Math.max(2, w >> 1))) o[i] = f === 'sum' ? s : s / n; }
+  return o; }
+function transform(v, t) { const a = D[v] || []; if (t === 'raw') return a;
+  const w = +t.slice(1); if (t[0] === 'm') return roll(a, w, 'mean'); if (t[0] === 's') return roll(a, w, 'sum');
+  return a.map((x, i) => (x == null || i < w || a[i - w] == null) ? null : x - a[i - w]); }
+function ranks(a) { const idx = a.map((v, i) => [v, i]).sort((x, y) => x[0] - y[0]); const r = new Array(a.length);
+  for (let i = 0; i < idx.length;) { let j = i; while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++;
+    const avg = (i + j) / 2 + 1; for (let k = i; k <= j; k++) r[idx[k][1]] = avg; i = j + 1; } return r; }
+function pearson(x, y) { const n = x.length; if (n < 3) return null; let mx = 0, my = 0; for (let i = 0; i < n; i++) { mx += x[i]; my += y[i]; } mx /= n; my /= n;
+  let sxy = 0, sxx = 0, syy = 0; for (let i = 0; i < n; i++) { const a = x[i] - mx, b = y[i] - my; sxy += a * b; sxx += a * a; syy += b * b; }
+  return sxx && syy ? sxy / Math.sqrt(sxx * syy) : null; }
+const corr = (x, y, m) => m === 'pearson' ? pearson(x, y) : pearson(ranks(x), ranks(y));
+function solve(A, b) { const n = b.length; A = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) { let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]]; if (Math.abs(A[c][c]) < 1e-12) return null;
+    for (let r = 0; r < n; r++) if (r !== c) { const f = A[r][c] / A[c][c]; for (let k = c; k <= n; k++) A[r][k] -= f * A[c][k]; } }
+  return A.map((r, i) => r[n] / r[i]); }
+function thresholds(score, pl) {
+  const levels = [...new Set(pl)].sort((a, b) => a - b), sorted = [...score].sort((a, b) => a - b), out = [];
+  const cand = [...new Set(Array.from({ length: 97 }, (_, i) => sorted[Math.floor((0.02 + i * 0.01) * (sorted.length - 1))]))];
+  for (const k of levels.slice(0, -1)) {
+    const lo = score.filter((_, i) => pl[i] <= k), hi = score.filter((_, i) => pl[i] > k);
+    if (lo.length < 5 || hi.length < 5) continue;
+    let best = -1, bc = null;
+    for (const c of cand) { const b = 0.5 * (lo.filter(v => v < c).length / lo.length + hi.filter(v => v >= c).length / hi.length); if (b > best) { best = b; bc = c; } }
+    out.push({ to: k + 1, cut: bc, bal: best });
+  }
+  for (let i = 1; i < out.length; i++) out[i].cut = Math.max(out[i].cut, out[i - 1].cut);
+  const pred = score.map(s => { let p = levels[0]; out.forEach(o => { if (s >= o.cut) p = o.to; }); return p; });
+  const counts = {}; pl.forEach(p => counts[p] = (counts[p] || 0) + 1); const common = +Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  return { cuts: out, acc: pred.filter((p, i) => p === pl[i]).length / pl.length, base: counts[common] / pl.length, common };
+}
+
+// ---------- day selection
+function dayOk(i, lead) {
+  const d = D.date[i], md = d.slice(5), yr = +d.slice(0, 4), p = document.getElementById('period').value, sp = document.getElementById('split').value;
+  if (offYears.has(yr)) return false;
+  if (p === 'season' && (md < '03-01' || md > '10-31')) return false;
+  if (p === 'pre' && (md < '03-01' || md >= sp)) return false;
+  if (p === 'mon' && (md < sp || md > '10-31')) return false;
+  if (p === 'custom') { const a = cFrom.value, b = cTo.value; if (a <= b ? (md < a || md > b) : (md < a && md > b)) return false; }
+  const pn = document.getElementById('plNow').value;
+  if (pn !== 'any') { const v = D.pl[i]; if (v == null || (pn === '4' ? v < 4 : v !== +pn)) return false; }
+  return D.pl[i + lead] != null;
+}
+// Build the score for the current values. Single value: the value itself. Several: least-squares weights (standardized).
+function build(lead, vars = VARS) {
+  const cols = vars.map(x => transform(x.v, x.t)), n = D.date.length, rows = [];
+  for (let i = 0; i + lead < n; i++) { if (!dayOk(i, lead)) continue; const xs = cols.map(c => c[i]); if (xs.some(x => x == null)) continue; rows.push([i, xs, D.pl[i + lead]]); }
+  if (!rows.length) return null;
+  if (vars.length === 1) return { rows, score: rows.map(r => r[1][0]), y: rows.map(r => r[2]), weights: null };
+  const k = vars.length, mu = Array(k).fill(0), sd = Array(k).fill(0);
+  rows.forEach(r => r[1].forEach((x, j) => mu[j] += x / rows.length));
+  rows.forEach(r => r[1].forEach((x, j) => sd[j] += (x - mu[j]) ** 2 / rows.length)); sd.forEach((s, j) => sd[j] = Math.sqrt(s) || 1);
+  const Z = rows.map(r => [1, ...r[1].map((x, j) => (x - mu[j]) / sd[j])]), y = rows.map(r => r[2]);
+  const XtX = Array.from({ length: k + 1 }, (_, a) => Array.from({ length: k + 1 }, (_, b) => Z.reduce((s, z) => s + z[a] * z[b], 0)));
+  const Xty = Array.from({ length: k + 1 }, (_, a) => Z.reduce((s, z, i) => s + z[a] * y[i], 0));
+  const w = solve(XtX, Xty) || Array(k + 1).fill(0);
+  return { rows, score: Z.map(z => z.reduce((s, v, j) => s + v * w[j], 0)), y, weights: w, mu, sd };
+}
+
+// ---------- UI
+function varRow(i) {
+  const x = VARS[i], all = document.getElementById('showAll').checked;
+  const list = BASE.filter(v => all || COMMON.includes(v) || v === x.v);
+  const name = v => (LBL[v] || v).replace(/ \[.*\]/, '').replace(/^(FEMS|Weather): /, '');
+  const opts = GROUPS.map(([g, re]) => { const vs = list.filter(v => re.test(v)); return vs.length ? `<optgroup label="${g}">${vs.map(v => `<option value="${v}" ${v === x.v ? 'selected' : ''}>${name(v)}</option>`).join('')}</optgroup>` : ''; }).join('') +
+    (() => { const rest = list.filter(v => !GROUPS.some(([, re]) => re.test(v))); return rest.length ? `<optgroup label="Other">${rest.map(v => `<option value="${v}" ${v === x.v ? 'selected' : ''}>${name(v)}</option>`).join('')}</optgroup>` : ''; })();
+  return `<div class="varrow"><div class="hd"><span>Value ${i + 1}</span>${i ? `<a href="#" data-rm="${i}">remove</a>` : ''}</div>
+    <select data-v="${i}">${opts}</select><select data-t="${i}" style="margin-top:4px">${TF(x.v).map(([k, t]) => `<option value="${k}" ${k === x.t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`;
+}
+function drawVars() {
+  const el = document.getElementById('vars'); el.innerHTML = VARS.map((_, i) => varRow(i)).join('');
+  el.querySelectorAll('[data-v]').forEach(s => s.onchange = () => { const i = +s.dataset.v; VARS[i].v = s.value; if (!TF(s.value).some(t => t[0] === VARS[i].t)) VARS[i].t = 'raw'; drawVars(); update(); });
+  el.querySelectorAll('[data-t]').forEach(s => s.onchange = () => { VARS[+s.dataset.t].t = s.value; update(); });
+  el.querySelectorAll('[data-rm]').forEach(a => a.onclick = e => { e.preventDefault(); VARS.splice(+a.dataset.rm, 1); drawVars(); update(); });
+  document.getElementById('addVar').style.display = VARS.length >= 3 ? 'none' : '';
+}
+const tfName = x => (TF(x.v).find(t => t[0] === x.t) || [, 'as-is'])[1];
+const vName = x => `${(LBL[x.v] || x.v).replace(/ \[.*\]/, '')}${x.t !== 'raw' ? ' (' + tfName(x) + ')' : ''}`;
+function mk(id, cfg) { if (charts[id]) charts[id].destroy(); Chart.defaults.color = C('--text-secondary'); Chart.defaults.borderColor = C('--grid'); charts[id] = new Chart(document.getElementById(id), cfg); }
+
+function update() {
+  const lead = +document.getElementById('lead').value, method = document.getElementById('method').value;
+  document.getElementById('leadTxt').textContent = lead;
+  const b = build(lead); if (!b) { document.getElementById('stats').innerHTML = '<p class="note">No days match these settings.</p>'; return; }
+  const r = corr(b.score, b.y, method), th = thresholds(b.score, b.y);
+  const yrs = {}; b.rows.forEach((row, k) => { const y = D.date[row[0]].slice(0, 4); (yrs[y] = yrs[y] || { s: [], y: [] }).s.push(b.score[k]); yrs[y].y.push(b.y[k]); });
+  const per = Object.entries(yrs).map(([y, o]) => [y, o.s.length >= 30 && new Set(o.y).size > 1 ? corr(o.s, o.y, method) : null]);
+  const same = per.filter(p => p[1] != null && Math.sign(p[1]) === Math.sign(r)).length, tot = per.filter(p => p[1] != null).length;
+  const label = VARS.length === 1 ? vName(VARS[0]) : `Combined score of ${VARS.length} values`;
+  document.getElementById('title').textContent = `${label} vs PL ${lead ? lead + ' days later' : 'same day'}`;
+  document.getElementById('stats').innerHTML = [
+    ['Match (r)', fmt(r, 2), r == null ? '' : Math.abs(r) >= .6 ? 'strong' : Math.abs(r) >= .4 ? 'moderate' : Math.abs(r) >= .2 ? 'weak' : 'little or none'],
+    ['Explained (r²)', r == null ? '–' : Math.round(r * r * 100) + '%', 'share of PL ups and downs it lines up with'],
+    ['Same direction', `${same} of ${tot} yrs`, 'years where the match points the same way'],
+    ['PL right with breakpoints', Math.round(th.acc * 100) + '%', `vs ${Math.round(th.base * 100)}% always guessing PL ${th.common}`],
+    ['Days used', b.rows.length.toLocaleString(), '']
+  ].map(([l, v, s]) => `<div class="stat"><div class="lbl">${l}</div><div class="big">${v}</div><div class="lbl">${s}</div></div>`).join('');
+  document.getElementById('formula').innerHTML = b.weights ? `<b>Combined score</b> (weights after putting each value on the same scale; a bigger weight means it matters more):<div class="formula">score = ${fmt(b.weights[0], 2)} ` +
+    VARS.map((x, j) => `${b.weights[j + 1] >= 0 ? '+' : '−'} ${fmt(Math.abs(b.weights[j + 1]), 2)} × [${vName(x)}]`).join(' ') + `</div>` : '';
+  // scatter
+  const jit = i => (((i * 9301 + 49297) % 233280) / 233280 - 0.5) * 0.5;
+  const pts = b.score.map((s, k) => ({ x: s, y: b.y[k] + jit(k), d: D.date[b.rows[k][0]], pl: b.y[k] }));
+  const med = [1, 2, 3, 4, 5].map(l => { const xs = b.score.filter((_, k) => b.y[k] === l).sort((a, c) => a - c); return xs.length >= 5 ? { x: xs[xs.length >> 1], y: l, n: xs.length } : null; }).filter(Boolean);
+  const mx = b.score.reduce((a, c) => a + c, 0) / b.score.length, my = b.y.reduce((a, c) => a + c, 0) / b.y.length;
+  let sxy = 0, sxx = 0; b.score.forEach((s, k) => { sxy += (s - mx) * (b.y[k] - my); sxx += (s - mx) ** 2; }); const sl = sxx ? sxy / sxx : 0;
+  const x0 = Math.min(...b.score), x1 = Math.max(...b.score);
+  mk('scatter', { type: 'scatter', data: { datasets: [
+      { label: 'One day', data: pts, pointRadius: 2.2, backgroundColor: C('--series-1') + '55' },
+      { label: 'Median at each PL', data: med, pointStyle: 'rect', pointRadius: 8, backgroundColor: C('--series-2'), borderColor: C('--surface-1'), borderWidth: 2 },
+      { type: 'line', label: 'Trend', data: [{ x: x0, y: my + sl * (x0 - mx) }, { x: x1, y: my + sl * (x1 - mx) }], borderColor: C('--text-primary'), borderDash: [6, 4], borderWidth: 2, pointRadius: 0 },
+      ...th.cuts.map(c => ({ type: 'line', label: `Breakpoint to PL ${c.to}`, data: [{ x: c.cut, y: 0.5 }, { x: c.cut, y: 5.5 }], borderColor: C('--accent'), borderWidth: 1, pointRadius: 0 }))] },
+    options: { maintainAspectRatio: false, animation: false, parsing: false, plugins: { legend: { position: 'bottom', labels: { filter: i => !/^Breakpoint/.test(i.text) || i.datasetIndex === 3 } },
+      tooltip: { callbacks: { label: c => c.raw.d ? `${c.raw.d}: ${fmt(c.raw.x, 1)} → PL ${c.raw.pl}` : c.raw.n ? `PL ${c.raw.y}: median ${fmt(c.raw.x, 1)}` : c.dataset.label } } },
+      scales: { x: { type: 'linear', title: { display: true, text: VARS.length === 1 ? vName(VARS[0]) : 'Combined score' } },
+                y: { min: .5, max: 5.5, ticks: { stepSize: 1, callback: t => Number.isInteger(t) ? 'PL ' + t : '' }, title: { display: true, text: `PL ${lead ? lead + ' days later' : 'same day'}` } } } } });
+  // lead curve
+  const L = [], R = []; for (let l = 0; l <= 30; l++) { const bb = build(l); L.push(l); R.push(bb ? corr(bb.score, bb.y, method) : null); }
+  mk('leadChart', { type: 'line', data: { labels: L, datasets: [{ label: 'Match', data: R, borderColor: C('--series-1'), borderWidth: 2, pointRadius: L.map(l => l === lead ? 5 : 0), pointBackgroundColor: C('--series-2') }] },
+    options: { maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { callbacks: { title: c => `PL ${c[0].label} days later`, label: c => `match ${fmt(c.raw, 3)}` } } },
+      scales: { x: { title: { display: true, text: 'Days ahead' } }, y: { title: { display: true, text: 'Match (r)' } } },
+      onClick: (e, els) => { if (els.length) { document.getElementById('lead').value = els[0].index; update(); } } } });
+  // years
+  mk('yearChart', { type: 'bar', data: { labels: per.map(p => p[0]), datasets: [{ data: per.map(p => p[1]), backgroundColor: per.map(p => (p[1] ?? 0) * (r ?? 1) >= 0 ? C('--series-1') : C('--neg')), borderRadius: 4 }] },
+    options: { maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } }, scales: { y: { min: -1, max: 1, title: { display: true, text: 'Match (r)' } } } } });
+  // breakpoints
+  document.getElementById('bp').innerHTML = th.cuts.length ? `<table><tr><th>Step</th><th class="num">${VARS.length === 1 ? 'Value' : 'Score'} at or above</th><th class="num">Right (balanced)</th></tr>` +
+    th.cuts.map(c => `<tr><td>PL ${c.to - 1} → PL ${c.to}</td><td class="num">${fmt(c.cut, 2)}</td><td class="num">${Math.round(c.bal * 100)}%</td></tr>`).join('') + '</table>' +
+    (r != null && r < 0 && VARS.length === 1 ? '<p class="note">This value falls as PL rises, so the cuts read "at or below" in practice. Switch to "Rank" to see the direction.</p>' : '') : '<p class="note">Not enough PL variety in these days.</p>';
+  renderTS(b, lead); state2url();
+}
+function renderTS(b, lead) {
+  const y = document.getElementById('tsYear').value, idx = D.date.map((d, i) => d.startsWith(y) ? i : -1).filter(i => i >= 0);
+  const cols = VARS.map(x => transform(x.v, x.t));
+  const score = idx.map(i => { const xs = cols.map(c => c[i]); if (xs.some(v => v == null)) return null; if (!b.weights) return xs[0]; return xs.reduce((s, v, j) => s + b.weights[j + 1] * (v - b.mu[j]) / b.sd[j], b.weights[0]); });
+  const common = { maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 12 } } } };
+  mk('tsPl', { type: 'line', data: { labels: idx.map(i => D.date[i].slice(5)), datasets: [{ label: 'PL', data: idx.map(i => D.pl[i]), stepped: true, borderColor: C('--series-2'), borderWidth: 2, pointRadius: 0 }] },
+    options: { ...common, scales: { ...common.scales, y: { min: .5, max: 5.5, ticks: { stepSize: 1 }, title: { display: true, text: 'SW PL' } } } } });
+  mk('tsScore', { type: 'line', data: { labels: idx.map(i => D.date[i].slice(5)), datasets: [{ label: 'score', data: score, borderColor: C('--series-1'), borderWidth: 2, pointRadius: 0 }] },
+    options: { ...common, scales: { ...common.scales, y: { title: { display: true, text: VARS.length === 1 ? 'Value' : 'Score' } } } } });
+}
+function grid() {
+  const v = VARS[0], method = document.getElementById('method').value, tfs = TF(v.v), leads = Array.from({ length: 31 }, (_, i) => i);
+  let best = { a: -1 }; const res = tfs.map(([t]) => leads.map(l => { const b = build(l, [{ v: v.v, t }]); const r = b ? corr(b.score, b.y, method) : null; if (r != null && Math.abs(r) > best.a) best = { a: Math.abs(r), t, l }; return r; }));
+  document.getElementById('gridCard').style.display = '';
+  document.getElementById('gridHow').innerHTML = `Match for <b>${(LBL[v.v] || v.v).replace(/ \[.*\]/, '')}</b> with each smoothing (rows) and lead (columns). The outlined cell is the best. Click any cell to use it.`;
+  const col = r => r == null ? 'transparent' : `rgba(${r >= 0 ? '37,125,224' : '236,70,71'},${(0.08 + 0.85 * Math.min(1, Math.abs(r) / .9)).toFixed(2)})`;
+  document.getElementById('grid').innerHTML = `<tr><th></th>${leads.map(l => `<th class="c">${l}</th>`).join('')}</tr>` +
+    tfs.map(([t, name], a) => `<tr><td>${name}</td>${res[a].map((r, l) => `<td class="cell ${best.t === t && best.l === l ? 'best' : ''}" data-t="${t}" data-l="${l}" style="background:${col(r)};color:${r != null && Math.abs(r) > .5 ? '#fff' : 'inherit'}">${r == null ? '' : r.toFixed(2).replace('0.', '.')}</td>`).join('')}</tr>`).join('');
+  document.querySelectorAll('#grid td.cell').forEach(td => td.onclick = () => { VARS[0].t = td.dataset.t; document.getElementById('lead').value = td.dataset.l; drawVars(); update(); });
+  if (best.t) { VARS[0].t = best.t; document.getElementById('lead').value = best.l; drawVars(); update(); }
+}
+function state2url() {
+  const p = new URLSearchParams({ area, period: period.value, split: split.value, lead: lead.value, method: method.value, plNow: plNow.value,
+    vars: VARS.map(x => x.v + ':' + x.t).join(','), off: [...offYears].join(',') });
+  if (period.value === 'custom') { p.set('from', cFrom.value); p.set('to', cTo.value); }
+  history.replaceState(null, '', '?' + p.toString());
+}
+async function loadArea(a) {
+  const base = a === 'SW' ? 'data/' : `data/psa/${a}_`;
+  const [d, an] = await Promise.all([getJSON(base + 'daily.json'), getJSON(base + 'analysis.json')]);
+  D = d; LBL = an.labels; area = a;
+  BASE = Object.keys(D).filter(k => k !== 'date' && k !== 'pl' && !k.includes('__') && !/reporting/.test(k) && D[k].some(v => v != null))
+    .sort((x, y) => (LBL[x] || x).localeCompare(LBL[y] || y));
+  VARS = VARS.filter(x => BASE.includes(x.v)); if (!VARS.length) VARS = [{ v: BASE.find(v => /psa_erc_pct|fems_erc$/.test(v)) || BASE[0], t: 'raw' }];
+  const years = [...new Set(D.date.map(x => +x.slice(0, 4)))];
+  document.getElementById('years').innerHTML = years.map(y => `<span class="chip ${offYears.has(y) ? 'off' : ''}" data-y="${y}">${y}</span>`).join('');
+  document.querySelectorAll('#years .chip').forEach(c => c.onclick = () => { const y = +c.dataset.y; offYears.has(y) ? offYears.delete(y) : offYears.add(y); c.classList.toggle('off'); update(); });
+  const ts = document.getElementById('tsYear'); ts.innerHTML = years.slice().reverse().map(y => `<option>${y}</option>`).join(''); ts.value = years.find(y => D.date.some((x, i) => x.startsWith(y) && D.pl[i] >= 3)) || years[years.length - 1];
+  ts.onchange = () => update();
+  drawVars(); update();
+}
+(async () => {
+  const q = new URLSearchParams(location.search);
+  if (q.get('vars')) VARS = q.get('vars').split(',').slice(0, 3).map(s => { const [v, t] = s.split(':'); return { v, t: t || 'raw' }; });
+  ['period', 'split', 'lead', 'method', 'plNow'].forEach(k => { if (q.get(k)) document.getElementById(k).value = q.get(k); });
+  if (q.get('from')) cFrom.value = q.get('from'); if (q.get('to')) cTo.value = q.get('to');
+  if (q.get('off')) q.get('off').split(',').filter(Boolean).forEach(y => offYears.add(+y));
+  let S = null; try { S = await getJSON('data/status.json'); } catch (e) {}
+  ((S && S.psas) || []).forEach(c => document.getElementById('area').insertAdjacentHTML('beforeend', `<option value="${c}">${c}</option>`));
+  const showRows = () => { splitRow.style.display = /pre|mon/.test(period.value) ? '' : 'none'; customRow.style.display = period.value === 'custom' ? '' : 'none'; };
+  ['period', 'split', 'method', 'plNow'].forEach(id => document.getElementById(id).onchange = () => { showRows(); update(); });
+  [cFrom, cTo].forEach(el => el.onchange = update);
+  document.getElementById('lead').oninput = update;
+  document.getElementById('addVar').onclick = () => { const pool = BASE.filter(v => COMMON.includes(v)); VARS.push({ v: (pool.length ? pool : BASE).find(v => !VARS.some(x => x.v === v)) || BASE[0], t: 'raw' }); drawVars(); update(); };
+  document.getElementById('showAll').onchange = drawVars;
+  document.getElementById('gridBtn').onclick = grid;
+  document.getElementById('area').onchange = async e => { try { await loadArea(e.target.value); } catch (er) { alert('That PSA is not ready yet.'); e.target.value = area; } };
+  document.getElementById('csvBtn').onclick = () => { const l = +lead.value, b = build(l); if (!b) return;
+    download(`explore_${area}.csv`, 'date,' + VARS.map(vName).map(s => `"${s}"`).join(',') + (b.weights ? ',score' : '') + `,pl_${l}d_later\n` +
+      b.rows.map((r, k) => [D.date[r[0]], ...r[1], ...(b.weights ? [b.score[k].toFixed(3)] : []), r[2]].join(',')).join('\n')); };
+  document.getElementById('linkBtn').onclick = () => { navigator.clipboard.writeText(location.href); document.getElementById('linkBtn').textContent = 'Link copied'; };
+  showRows();
+  try { await loadArea(q.get('area') || 'SW'); document.getElementById('area').value = area; }
+  catch (e) { document.getElementById('stats').innerHTML = '<p class="note">No data yet. It appears after the first data runs.</p>'; }
+})();
+</script>
+</body>
+</html>
