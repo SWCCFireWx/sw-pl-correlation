@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SW FEMS station map</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="common.js"></script>
+<style>
+  #map { height: calc(100vh - 210px); min-height: 480px; border-radius: 10px; border: 1px solid var(--border); }
+  .leaflet-popup-content { font-size: 13px; min-width: 230px; }
+  .leaflet-popup-content table td { padding: 2px 6px; }
+  .side { font-size: 13px; }
+  .maplegend { background: var(--surface-1); color: var(--text-primary); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 12px; line-height: 1.6; }
+  .maplegend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  .maplegend i.sq { border-radius: 2px; }
+</style>
+</head>
+<body>
+<header class="page" style="padding-bottom:0">
+  <h1>FEMS stations across the Southwest</h1>
+  <p class="sub">Every RAWS station in the Southwest PSAs, with that day's FEMS values. A dot's color shows how unusual the value is <em>for that station's own history</em>.
+     PSAs are filled by the workbook ERC(Y) or BI percentile class. Click anything for details, and zoom with the mouse wheel or +/−.</p>
+  <div class="bar-controls">
+    <label>Date <span class="datebox" id="dateBox"></span></label>
+    <label>Station value <select id="varSel"></select></label>
+    <label>PSA fill <select id="psaSel"><option value="erc">ERC(Y) class</option><option value="bi">BI class</option><option value="none">None</option></select></label>
+    <label>Fire starts <select id="fireSel"><option value="1">That day</option><option value="7">Last 7 days</option><option value="0">Hide</option></select></label>
+    <label>&nbsp;<span class="note" id="info"></span></label>
+  </div>
+</header>
+<main style="max-width:none">
+  <div id="map" style="margin-top:12px"></div>
+  <p class="note">Gray dots have no report that day. Dark-ringed dots are the workbook's key stations, the ones used for the PSA ERC(Y)/BI averages.
+</p>
+</main>
+<script>
+navBar();
+const LOW = /(_fm|moisture|humidity|precip|gsi)/;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const CLS_COL = c => css('--c' + c) || '#ccc';
+let ST, PSA, GEO, yearCache = {}, fireCache = {}, state = { date: null, v: null };
+const map = L.map('map', { zoomSnap: 0.5 }).setView([34.3, -109], 6.5);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 14, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+const psaLayer = L.geoJSON(null).addTo(map), fireLayer = L.layerGroup().addTo(map), stLayer = L.layerGroup().addTo(map);
+
+function stationClass(s, v, val) {
+  const q = (s.q || {})[v]; if (val == null || !q || q.some(x => x == null)) return null;
+  // q = [3,10,25,50,75,90,97th]
+  if (LOW.test(v)) return val <= q[0] ? 97 : val <= q[1] ? 90 : val <= q[2] ? 75 : val <= q[3] ? 50 : 45;
+  return val >= q[6] ? 97 : val >= q[5] ? 90 : val >= q[4] ? 75 : val >= q[3] ? 50 : 45;
+}
+async function yearData(y) {
+  if (!(y in yearCache)) yearCache[y] = getJSON(`data/map/values_${y}.json`).catch(() => null);
+  return yearCache[y];
+}
+async function fires(y) {
+  if (!(y in fireCache)) fireCache[y] = getJSON(`data/map/fires_${y}.json`).catch(() => []);
+  return fireCache[y];
+}
+function psaIdx(date) { return PSA.dates.indexOf(date); }
+
+function legend() {
+  const c = L.control({ position: 'bottomright' });
+  c.onAdd = () => { const d = L.DomUtil.create('div', 'maplegend');
+    d.innerHTML = `<b>Station vs its own history</b><br>` + [[97,'97th+ (most extreme)'],[90,'90–97th'],[75,'75–90th'],[50,'50–75th'],[45,'below 50th']]
+      .map(([k,t]) => `<i style="background:${CLS_COL(k)}"></i>${t}`).join('<br>') + `<br><i style="background:#9a9a9a"></i>no report<br>
+      <i class="sq" style="background:#d33"></i>fire start (size = acres)<br><span class="note">Fuel moistures &amp; RH: lowest = most extreme</span>`;
+    return d; };
+  c.addTo(map);
+}
+
+async function draw() {
+  const date = state.date, y = +date.slice(0, 4), v = state.v;
+  // PSAs
+  const i = psaIdx(date), mode = document.getElementById('psaSel').value;
+  psaLayer.clearLayers();
+  if (GEO) {
+    psaLayer.addData(GEO);
+    psaLayer.eachLayer(l => {
+      const code = l.feature.properties.PSANationalCode, p = PSA.psa[code] || {};
+      const g = k => (i >= 0 && p[k]) ? p[k][i] : null;
+      const cls = mode === 'none' ? null : g(mode + '_class');
+      l.setStyle({ color: css('--text-secondary'), weight: 1.2, fillColor: cls ? CLS_COL(cls) : 'transparent', fillOpacity: cls ? 0.45 : 0 });
+      l.bindPopup(`<b>${code}</b> ${l.feature.properties.PSANAME || ''}<table>
+        <tr><td>ERC(Y) avg</td><td>${fmt(g('erc_avg'),1)}</td><td>${clsBadge(g('erc_class'))}</td></tr>
+        <tr><td>BI avg</td><td>${fmt(g('bi_avg'),1)}</td><td>${clsBadge(g('bi_class'))}</td></tr></table>`);
+      l.bindTooltip(code, { sticky: true });
+    });
+    psaLayer.bringToBack();
+  }
+  // fires
+  fireLayer.clearLayers();
+  const days = +document.getElementById('fireSel').value;
+  if (days) {
+    const f = await fires(y), lo = new Date(date + 'T12:00'); lo.setDate(lo.getDate() - (days - 1));
+    const loS = lo.toISOString().slice(0, 10);
+    let n = 0;
+    f.filter(r => r[0] >= loS && r[0] <= date && r[1] != null).forEach(r => {
+      n++;
+      L.circleMarker([r[2], r[1]], { radius: Math.max(3, Math.min(14, 2 + Math.log10((r[3] || 0) + 1) * 3)), color: '#fff', weight: 1, fillColor: '#d33', fillOpacity: .85 })
+        .bindPopup(`<b>${r[6] || 'Fire'}</b><br>Discovered ${r[0]} · ${r[5] || ''}<br>${fmt(r[3],1)} acres (final size) · ${r[4] ? 'lightning' : 'other/unknown cause'}`).addTo(fireLayer);
+    });
+    state.fireCount = n;
+  }
+  // stations
+  stLayer.clearLayers();
+  const Y = await yearData(y), di = Y ? Y.dates.indexOf(date) : -1;
+  let reporting = 0;
+  ST.stations.forEach(s => {
+    if (s.lat == null) return;
+    const k = Y ? Y.stations.indexOf(s.id) : -1;
+    const val = (k >= 0 && di >= 0 && Y.vars[v]) ? Y.vars[v][k][di] : null;
+    if (val != null) reporting++;
+    const c = stationClass(s, v, val);
+    const mk = L.circleMarker([s.lat, s.lon], { radius: s.key ? 7 : 5.5, color: s.key ? '#191919' : '#fff', weight: s.key ? 2.2 : 1,
+      fillColor: val == null ? '#9a9a9a' : c ? CLS_COL(c) : '#9a9a9a', fillOpacity: .95 });
+    mk.bindTooltip(`${s.name} · ${ST.labels[v] ? ST.labels[v].replace(/^(FEMS|Weather): /, '') : v}: ${fmt(val, 1)}`);
+    mk.on('click', () => {
+      const rows = ST.vars.map(x => { const vv = (k >= 0 && di >= 0 && Y.vars[x]) ? Y.vars[x][k][di] : null;
+        return `<tr><td>${(ST.labels[x] || x).replace(/ \[.*\]/, '')}</td><td class="num">${fmt(vv, 1)}</td><td>${clsBadge(stationClass(s, x, vv))}</td></tr>`; }).join('');
+      mk.bindPopup(`<b>${s.name}</b> (${s.id})<br>${s.psa || ''}${s.key ? ' · key station' : ''}${s.in_area ? '' : ' · outside AZ/NM (PSA average only)'}<br>
+        <span class="note">${date} · colored vs this station's own history</span><table>${rows}</table>`).openPopup();
+    });
+    mk.addTo(stLayer);
+  });
+  document.getElementById('info').textContent = `${reporting} of ${ST.stations.length} stations reporting` + (days ? ` · ${state.fireCount || 0} fire starts` : '');
+}
+
+(async () => {
+  try {
+    [ST, PSA] = await Promise.all([getJSON('data/map/stations.json'), getJSON('data/map/psa_daily.json')]);
+    GEO = await getJSON('data/map/psas.geojson').catch(() => null);
+  } catch (e) { document.getElementById('info').textContent = 'Map data not ready yet. It appears after the first data runs.'; return; }
+  const vs = document.getElementById('varSel');
+  vs.innerHTML = ST.vars.map(v => `<option value="${v}">${(ST.labels[v] || v).replace(/ \[.*\]/, '')}</option>`).join('');
+  state.v = ST.vars.find(v => /_erc$/.test(v)) || ST.vars[0]; vs.value = state.v;
+  vs.onchange = () => { state.v = vs.value; draw(); };
+  ['psaSel', 'fireSel'].forEach(id => document.getElementById(id).onchange = draw);
+  const years = PSA.years || [];
+  const min = (PSA.dates[0] || `${years[0]}-01-01`), max = PSA.dates[PSA.dates.length - 1] || new Date().toISOString().slice(0, 10);
+  const q = new URLSearchParams(location.search).get('date');
+  state.date = q && q >= min && q <= max ? q : max;
+  dateBox(document.getElementById('dateBox'), min, max, state.date, d => { state.date = d; history.replaceState(null, '', '?date=' + d); draw(); });
+  if (GEO) map.fitBounds(L.geoJSON(GEO).getBounds(), { padding: [10, 10] });
+  legend(); draw();
+})();
+</script>
+</body>
+</html>
