@@ -1,0 +1,78 @@
+name: Update data and publish
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # every 15 minutes (GitHub may delay scheduled runs at busy times)
+  workflow_dispatch: {}       # "Run workflow" button on the Actions tab
+  push:
+    branches: [main]
+
+permissions:
+  contents: write   # to save station-level data on the 'data' branch
+  pages: write      # to publish the site
+  id-token: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Get stored station data ('data' branch)
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          URL="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$URL" data >/dev/null; then
+            # branch exists: a failed clone must stop the run, never start over empty
+            git clone --depth 1 --branch data "$URL" store
+          else
+            echo "First run: no 'data' branch yet, starting fresh."
+            mkdir -p store
+          fi
+          rm -rf store/.git
+
+      - name: Fetch, backfill and analyze
+        env:
+          STORE_DIR: ${{ github.workspace }}/store
+        run: python scripts/update.py
+
+      - name: Save station data (overwrites the 'data' branch; no history build-up)
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          cd store
+          git init -q -b data
+          git config user.name  "pl-data-bot"
+          git config user.email "pl-data-bot@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Station data $(date -u +'%Y-%m-%d %H:%M')Z"
+          git push -q --force "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: update
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
