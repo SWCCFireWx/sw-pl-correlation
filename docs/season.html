@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Summer guide – SW PL</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="common.js"></script>
+<style>
+  .cal { display: grid; gap: 1px; font-size: 11px; }
+  .cal .yr { color: var(--text-secondary); padding-right: 6px; text-align: right; line-height: 12px; }
+  .cal .c { height: 12px; }
+  .cal .m { color: var(--text-secondary); font-size: 11px; }
+  .chartbox { position: relative; height: 260px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; } @media (max-width: 1100px) { .two { grid-template-columns: 1fr; } }
+  .two > .card { min-width: 0; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+  .seg button { border: 0; border-radius: 0; } .seg button.on { background: var(--text-primary); color: var(--surface-1); }
+  .trig { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin: 8px 0; }
+  .trig .s { font-size: 15px; } .trig .m { font-size: 13px; color: var(--text-secondary); margin-top: 3px; }
+  .now { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; } @media (max-width: 1000px) { .now { grid-template-columns: 1fr; } }
+  #now td { white-space: nowrap; } #now td:first-child { white-space: normal; }
+  .met { color: #fff; background: var(--c90); border-radius: 4px; padding: 0 6px; font-size: 12px; font-weight: 600; }
+  .notmet { color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; font-size: 12px; }
+  .bigline { font-size: 18px; }
+  .stack { display: flex; height: 22px; border-radius: 4px; overflow: hidden; margin: 3px 0 2px; max-width: 520px; }
+  .stack span { display: flex; align-items: center; justify-content: center; font-size: 12px; color: #fff; white-space: nowrap; overflow: hidden; }
+  .verdict { display: inline-block; padding: 2px 10px; border-radius: 99px; font-weight: 650; font-size: 14px; color: #fff; }
+  #moving td, #signs td { white-space: nowrap; } #moving td:first-child, #signs td:first-child { white-space: normal; }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>Summer guide: how the PL moves, and what to watch</h1>
+  <p class="sub">Built from the Southwest PL history and the FEMS and fire archive. <b>Today compared with the past</b> finds the past days most like today and shows what happened next.
+     The <b>calendar</b> shows how past seasons played out. <b>Warning signs</b> lists the values that came before past PL steps, and how reliable each was.</p>
+  <p class="note" id="meta"></p>
+</header>
+<main>
+  <section class="card">
+    <h2>Today compared with the past</h2>
+    <div id="nowHead" class="bigline"></div>
+    <div class="bar-controls" style="margin-top:6px"><label>Look ahead <span class="seg" id="horizon"><button data-h="7">7 days</button><button data-h="14" class="on">14 days</button></span></label></div>
+    <div id="odds" style="margin-top:10px"></div>
+    <div class="two" style="margin-top:6px">
+      <div><h3 style="font-size:14px">What's changing</h3><p class="how" style="margin:0 0 6px">"For the date" is today's value as a percentile of the same two weeks in past years (90 = higher than 90% of past years).</p><div id="moving"></div></div>
+      <div><h3 style="font-size:14px">Signs for the next step</h3><p class="how" style="margin:0 0 6px">The warning signs below for today's PL, how far each is from its level, and how soon it would get there at this week's pace.</p><div id="signs"></div></div>
+    </div>
+    <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">The closest past matches and what happened next</summary><div id="analogs" style="overflow:auto"></div></details>
+  </section>
+
+  <section class="card">
+    <h2>How past seasons played out</h2>
+    <p class="how">One row per year, March to October; darker blue is a higher PL. Hover over a day for its PL.</p>
+    <div class="legend" id="calLegend"></div>
+    <div id="cal" style="overflow-x:auto"></div>
+  </section>
+
+  <div class="two">
+    <section class="card">
+      <h2>Chance of each PL by date</h2>
+      <p class="how">The share of past years at or above each PL on that date.</p>
+      <div class="chartbox"><canvas id="chance"></canvas></div>
+    </section>
+    <section class="card">
+      <h2>Typical season</h2>
+      <div id="typical"></div>
+      <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">Year by year</summary><div id="years" style="max-height:360px;overflow:auto"></div></details>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Warning signs for each step</h2>
+    <p class="how" id="trigHow"></p>
+    <div class="bar-controls" style="margin-top:0"><label>Step <span class="seg" id="steps"></span></label></div>
+    <div id="stepHead" style="margin-top:10px"></div>
+    <div id="trigs"></div>
+    <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:600">Past steps and which signs came first</summary><div id="events" style="overflow:auto"></div></details>
+  </section>
+</main>
+<script>
+navBar();
+let G, SEL = null, chart;
+const Cv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const plCol = p => p == null ? 'transparent' : Cv('--pl' + p);
+const short = l => (l || '').replace(/ \[.*\]/, '').replace(/^(FEMS|Weather): /, '');
+const md = s => new Date('2001-' + s + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+const tname = t => `${short(t.label)}${t.transform !== 'as-is' ? ' (' + t.transform + ')' : ''}`;
+const TFKEY = { 'as-is': 'raw', '7-day average': 'm7', '14-day average': 'm14', '7-day change': 'c7', '7-day total': 's7', '14-day total': 's14' };
+const fmtv = v => v == null ? '–' : Math.abs(v) >= 100 ? fmt(v, 0) : Math.abs(v) >= 10 ? fmt(v, 1) : fmt(v, 2);
+function sentence(s, t) {
+  const verb = s.kind === 'up' ? 'went up to' : 'came down to';
+  return `<b>${tname(t)} ${t.direction === '>=' ? '≥' : '≤'} ${fmtv(t.threshold)}</b> while at PL ${s.from}`;
+}
+function metrics(s, t) {
+  const n = s.n_events, c = t.hits.filter(Boolean).length;
+  return `Came before <b>${c} of ${n}</b> past ${s.from}→${s.to} steps (within ${G.window_days} days) · when it was on, PL ${s.kind === 'up' ? 'rose' : 'dropped'} within ${G.window_days} days <b>${Math.round(t.right * 100)}%</b> of the time ` +
+    `(vs ${Math.round((s.base_rate || 0) * 100)}% normally) · typical warning <b>${t.lead_days == null ? '–' : t.lead_days + ' days'}</b> ahead`;
+}
+function exploreLink(t) { const v = t.var + ':' + (TFKEY[t.transform] || 'raw'); return `explore.html?area=SW&period=season&lead=${Math.round(t.lead_days || 7)}&vars=${encodeURIComponent(v)}`; }
+
+function renderCalendar() {
+  const C = G.calendar, days = C.days, rows = C.grid;
+  const cols = `44px repeat(${days.length}, minmax(2px, 1fr))`;
+  let h = `<div class="cal" style="grid-template-columns:${cols};min-width:${days.length * 3 + 50}px"><div></div>` +
+    days.map(d => `<div class="m">${d.endsWith('-01') ? md(d).split(' ')[0] : ''}</div>`).join('');
+  rows.slice().reverse().forEach(r => {
+    h += `<div class="yr">${r.year}</div>` + r.pl.map((p, i) => `<div class="c" style="background:${plCol(p)}" title="${days[i]}-${r.year}: ${p == null ? 'no data' : 'PL ' + p}"></div>`).join('');
+  });
+  document.getElementById('cal').innerHTML = h + '</div>';
+  document.getElementById('calLegend').innerHTML = [1, 2, 3, 4, 5].map(p => `<span><i style="background:${plCol(p)}"></i>PL ${p}</span>`).join('');
+}
+function renderChance() {
+  const c = G.chance, cols = [Cv('--pl2'), Cv('--pl3'), Cv('--pl5')];
+  Chart.defaults.color = Cv('--text-secondary'); Chart.defaults.borderColor = Cv('--grid');
+  chart = new Chart(document.getElementById('chance'), { type: 'line',
+    data: { labels: c.days.map(md), datasets: [2, 3, 4].map((k, i) => ({ label: `PL ${k}${k === 4 ? '+' : ' or higher'}`, data: c['ge' + k], borderColor: cols[i], borderWidth: 2, pointRadius: 0, tension: .2 })) },
+    options: { maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: x => `${x.dataset.label}: ${x.raw}% of years` } } },
+      scales: { x: { ticks: { maxTicksLimit: 9 } }, y: { min: 0, max: 100, title: { display: true, text: '% of years' } } } } });
+}
+function renderTypical() {
+  const t = G.typical, n = t.n_years;
+  const row = (lbl, k) => t[k] && t[k].date ? `<tr><td>${lbl}</td><td class="num"><b>${md(t[k].date)}</b></td><td class="num">${t[k].years} of ${n} years</td></tr>` : '';
+  document.getElementById('typical').innerHTML = `<table><tr><th>Milestone (median date)</th><th class="num">Date</th><th class="num">Happened in</th></tr>
+    ${row('First day at PL 2+', 'first2')}${row('First day at PL 3+', 'first3')}${row('First day at PL 4+', 'first4')}${row('Last day at PL 3+ (season winding down)', 'last3')}</table>
+    <p class="note">Peak PL reached: PL 3+ in ${t.reached[3]} of ${n} complete years, PL 4+ in ${t.reached[4]}, PL 5 in ${t.reached[5]}.</p>`;
+  document.getElementById('years').innerHTML = `<table><tr><th>Year</th><th>Peak</th><th>First PL 2</th><th>First PL 3</th><th>First PL 4</th><th>Last PL 3+</th><th class="num">Days at 3+</th></tr>` +
+    G.years.slice().reverse().map(r => `<tr><td>${r.year}${r.complete ? '' : ' *'}</td><td>${plBadge(r.peak)}</td><td>${r.first2 ? md(r.first2) : '–'}</td><td>${r.first3 ? md(r.first3) : '–'}</td><td>${r.first4 ? md(r.first4) : '–'}</td><td>${r.last3 ? md(r.last3) : '–'}</td><td class="num">${r.days_ge3}</td></tr>`).join('') +
+    `</table><p class="note">* season still in progress or incomplete.</p>`;
+}
+function renderSteps() {
+  const S = G.steps.filter(s => s.n_events >= 1);
+  if (!SEL) SEL = (S.find(s => s.key === '2→3') || S[0] || {}).key;
+  document.getElementById('steps').innerHTML = S.map(s => `<button data-k="${s.key}" class="${s.key === SEL ? 'on' : ''}">${s.kind === 'up' ? '▲' : '▼'} ${s.key}</button>`).join('');
+  document.querySelectorAll('#steps button').forEach(b => b.onclick = () => { SEL = b.dataset.k; renderSteps(); });
+  const s = G.steps.find(x => x.key === SEL); if (!s) return;
+  document.getElementById('trigHow').innerHTML = `Each sign reads "this value at or beyond this level while at the current PL." It's scored on the past steps since FEMS data begins (${G.fems_from || '–'}). <b>Came before</b>: how many past steps it warned of. <b>When it was on</b>: how often the step followed within ${G.window_days} days, compared with how often that happens anyway at that PL. Open any sign in Explore to look closer.`;
+  document.getElementById('stepHead').innerHTML = `<p><b>${s.kind === 'up' ? 'Going up' : 'Coming down'}: PL ${s.from} → PL ${s.to}.</b> ${s.n_events} times since FEMS data begins (${s.all_time_events} since 2004).
+    At PL ${s.from}, a ${s.kind === 'up' ? 'rise' : 'drop'} within ${G.window_days} days happens on <b>${Math.round((s.base_rate || 0) * 100)}%</b> of days anyway; good signs beat that by a wide margin.</p>`;
+  document.getElementById('trigs').innerHTML = s.triggers.length ? s.triggers.map((t, i) => `<div class="trig"><div class="s">${i + 1}. ${sentence(s, t)}</div><div class="m">${metrics(s, t)} · <a href="${exploreLink(t)}">explore</a></div></div>`).join('')
+    : '<p class="note">Not enough past steps with FEMS data yet.</p>';
+  const top = s.triggers.slice(0, 3);
+  document.getElementById('events').innerHTML = s.events.length ? `<table><tr><th>Step date</th>${top.map((t, i) => `<th class="c">Sign ${i + 1}</th>`).join('')}</tr>` +
+    s.events.map((d, j) => `<tr><td>${d}</td>${top.map(t => `<td class="c">${t.hits[j] ? '✓' : '–'}</td>`).join('')}</tr>`).join('') + '</table>' : '';
+}
+let H = 14;
+function stack(c, label) {
+  const n = (c.up || 0) + (c.same || 0) + (c.down || 0); if (!n) return '';
+  const seg = (k, col, txt) => c[k] ? `<span style="width:${100 * c[k] / n}%;background:${col}" title="${txt}: ${c[k]} of ${n}">${100 * c[k] / n >= 6 ? Math.round(100 * c[k] / n) + '%' : ''}</span>` : '';
+  return `<div class="note">${label} (${n} days)</div><div class="stack">${seg('up', Cv('--c90'), 'went up')}${seg('same', '#9a9a9a', 'stayed')}${seg('down', Cv('--pl3'), 'came down')}</div>`;
+}
+function renderNow() {
+  const T = G.today; if (!T) { document.getElementById('nowHead').innerHTML = '<span class="note">Not enough data yet to compare today with the past.</span>'; return; }
+  const c = T.counts[H], b = T.base[H], n = c.up + c.same + c.down, nb = b.up + b.same + b.down;
+  const pu = n ? c.up / n : 0, pd = n ? c.down / n : 0, bu = nb ? b.up / nb : 0, bd = nb ? b.down / nb : 0;
+  const level = p => p >= 0.4 ? ['High', Cv('--c97')] : p >= 0.2 ? ['Elevated', Cv('--c90')] : ['Low', '#7a7a7a'];
+  const lu = level(pu), ld = level(pd);
+  document.getElementById('nowHead').innerHTML = `As of <b>${T.date}</b> the Southwest is at ${plBadge(T.pl)}.` +
+    (T.in_season ? '' : ` <span class="note">(outside the fire season, so treat this loosely)</span>`);
+  document.getElementById('odds').innerHTML = `
+    <p style="margin:4px 0 8px">Of the <b>${n}</b> past days most like today (same PL, same time of year, similar conditions), within ${H} days the PL
+      <b>went up in ${c.up}</b>, stayed the same in ${c.same}, and <b>came down in ${c.down}</b>.
+      Normally at PL ${T.pl} this time of year it goes up ${Math.round(bu * 100)}% and comes down ${Math.round(bd * 100)}% of the time.</p>
+    <p style="margin:0 0 8px">Chance of going up: <span class="verdict" style="background:${lu[1]}">${lu[0]} · ${Math.round(pu * 100)}%</span>
+      &nbsp; Chance of coming down: <span class="verdict" style="background:${ld[1]}">${ld[0]} · ${Math.round(pd * 100)}%</span>
+      &nbsp; <a href="forecast.html">PL forecast →</a></p>
+    ${stack(c, 'Days most like today')}${stack(b, 'All days at PL ' + T.pl + ' this time of year')}
+    <div class="legend"><span><i style="background:${Cv('--c90')}"></i>went up</span><span><i style="background:#9a9a9a"></i>stayed</span><span><i style="background:${Cv('--pl3')}"></i>came down</span></div>`;
+  const arrow = v => v == null ? '' : v > 0 ? '▲' : v < 0 ? '▼' : '–';
+  document.getElementById('moving').innerHTML = `<table><tr><th>Value</th><th class="num">Now</th><th class="num">For the date</th><th class="num">Past week</th></tr>` +
+    T.moving.map(m => `<tr><td>${short(m.label)}${m.transform !== 'as-is' ? ' <span class="note">(' + m.transform + ')</span>' : ''}</td><td class="num">${fmtv(m.now)}</td>
+      <td class="num">${m.pct_for_date == null ? '–' : m.pct_for_date + 'th'}</td><td class="num">${arrow(m.change_7d)} ${m.change_7d == null ? '' : fmtv(Math.abs(m.change_7d))}</td></tr>`).join('') + '</table>';
+  const sg = T.signs || [];
+  document.getElementById('signs').innerHTML = !sg.length ? '<p class="note">No warning signs learned for this PL yet.</p>' :
+    ['up', 'down'].map(k => { const list = sg.filter(x => x.kind === k); if (!list.length) return '';
+      const st = list[0].step, met = list.filter(x => x.met).length;
+      return `<p style="margin:6px 0 2px"><b>${k === 'up' ? '▲ Toward' : '▼ Back to'} PL ${st.split('→')[1]}</b>: ${met} of ${list.length} signs met</p>
+        <table><tr><th>Sign</th><th class="num">Now</th><th class="num">Level</th><th>Status</th></tr>` +
+        list.map(x => `<tr><td>${short(x.label)}${x.transform !== 'as-is' ? ' <span class="note">(' + x.transform + ')</span>' : ''}</td><td class="num">${fmtv(x.now)}</td>
+          <td class="num">${x.direction === '>=' ? '≥' : '≤'} ${fmtv(x.threshold)}</td>
+          <td>${x.met ? '<span class="met">MET</span>' : x.days_away != null ? `<span class="notmet">~${x.days_away} days away at this pace</span>` : x.toward === false ? '<span class="notmet">moving away</span>' : '<span class="notmet">not met</span>'}</td></tr>`).join('') + '</table>'; }).join('');
+  const what = a => a.what === 'up' ? `went up to ${plBadge(a.to_pl)} after ${a.after_days} d` : a.what === 'down' ? `came down to ${plBadge(a.to_pl)} after ${a.after_days} d` : 'stayed the same';
+  document.getElementById('analogs').innerHTML = `<p class="how">Closest first. "Match" is how far that day's conditions were from today's (0 = identical, in standard deviations). Click a date to open that day's briefing.</p>
+    <table><tr><th>Date</th><th class="num">Match</th><th>Next 14 days</th></tr>` +
+    T.analogs.map(a => `<tr><td><a href="briefing.html?date=${a.date}">${a.date}</a></td><td class="num">${fmt(a.distance, 2)}</td><td>${what(a)}</td></tr>`).join('') + '</table>' +
+    `<p class="note">Compared on: ${T.features.map(k => { const [v, t] = k.split('|'); return short(T.feature_labels[k]) + (t !== 'as-is' ? ' (' + t + ')' : ''); }).join(' · ')}.</p>`;
+}
+(async () => {
+  try { G = await getJSON('data/season.json'); } catch (e) { document.getElementById('meta').textContent = 'The summer guide appears after the next data run.'; return; }
+  document.getElementById('meta').textContent = `Updated ${new Date(G.generated).toLocaleString()} · warning window ${G.window_days} days`;
+  document.querySelectorAll('#horizon button').forEach(b => b.onclick = () => { H = +b.dataset.h; document.querySelectorAll('#horizon button').forEach(x => x.classList.toggle('on', x === b)); renderNow(); });
+  renderNow(); renderCalendar(); renderChance(); renderTypical(); renderSteps();
+})();
+</script>
+</body>
+</html>
